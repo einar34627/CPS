@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Scheduling Buttons - Copy & Paste</title>
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            padding: 40px;
+            background: #f5f6fb;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 32px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1f2937;
+            margin-bottom: 8px;
+        }
+        h2 {
+            color: #374151;
+            margin-bottom: 16px;
+            font-size: 20px;
+        }
+        .button-example {
+            margin-bottom: 24px;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+            border-left: 4px solid #cd26dc;
+        }
+        .button-preview {
+            margin-bottom: 16px;
+        }
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #cd26dc, #ff8eff);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(197, 17, 179, 0.3);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: #1f2937;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .create-btn-large {
+            padding: 14px 28px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #cd26dc, #ff8eff);
+            color: white;
+            box-shadow: 0 4px 15px rgba(197, 17, 179, 0.3);
+            text-decoration: none;
+        }
+        .create-btn-large:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(197, 17, 179, 0.4);
+        }
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            color: #1f2937;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .menu-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .icon-box {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(197, 17, 179, 0.15);
+        }
+        .icon-purple {
+            color: #cd26dc;
+        }
+    </style>
+</head>
+<body>
+    <div class="section">
+        <h1>Event Scheduling Buttons</h1>
+        <p style="color: #6b7280;">Copy and paste these button codes into your pages</p>
+    </div>
+
+    <!-- Navigation Menu Button -->
+    <div class="section">
+        <h2>1. Navigation Menu Button (Sidebar)</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="menu-item">
+                    <div class="icon-box">
+                        <i class='bx bxs-calendar icon-purple'></i>
+                    </div>
+                    <span class="font-medium">Event Scheduling</span>
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="menu-item"&gt;
+    &lt;div class="icon-box icon-bg-purple"&gt;
+        &lt;i class='bx bxs-calendar icon-purple'&gt;&lt;/i&gt;
+    &lt;/div&gt;
+    &lt;span class="font-medium"&gt;Event Scheduling&lt;/span&gt;
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Primary Button -->
+    <div class="section">
+        <h2>2. Primary Button</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="btn btn-primary">
+                    <i class='bx bxs-calendar'></i> Event Scheduling
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="btn btn-primary" style="text-decoration: none;"&gt;
+    &lt;i class='bx bxs-calendar'&gt;&lt;/i&gt; Event Scheduling
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Large Create Button -->
+    <div class="section">
+        <h2>3. Large Create Button</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="create-btn-large">
+                    <i class='bx bx-plus'></i> Create New Event
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="create-btn-large" style="text-decoration: none;"&gt;
+    &lt;i class='bx bx-plus'&gt;&lt;/i&gt; Create New Event
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Secondary Button -->
+    <div class="section">
+        <h2>4. Secondary Button</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="btn btn-secondary">
+                    <i class='bx bxs-calendar'></i> View Events
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="btn btn-secondary" style="text-decoration: none;"&gt;
+    &lt;i class='bx bxs-calendar'&gt;&lt;/i&gt; View Events
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Icon Only Button -->
+    <div class="section">
+        <h2>5. Icon Only Button</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="btn btn-primary" style="width: 40px; height: 40px; padding: 0; justify-content: center; border-radius: 50%;" title="Event Scheduling">
+                    <i class='bx bxs-calendar'></i>
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="btn btn-primary btn-icon-only" title="Event Scheduling"&gt;
+    &lt;i class='bx bxs-calendar'&gt;&lt;/i&gt;
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Quick Action Button -->
+    <div class="section">
+        <h2>6. Quick Action Button (Dashboard)</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" class="btn btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+                    <i class='bx bxs-calendar' style="font-size: 18px;"></i>
+                    Event Scheduling
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="primary-button" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px;"&gt;
+    &lt;i class='bx bxs-calendar' style="font-size: 18px;"&gt;&lt;/i&gt;
+    Event Scheduling
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- Card Style Button -->
+    <div class="section">
+        <h2>7. Card Style Button</h2>
+        <div class="button-example">
+            <div class="button-preview">
+                <a href="Event%20Sheduling.php" style="text-decoration: none; display: block; background: rgba(255,255,255,0.8); border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: all 0.3s ease;">
+                    <div class="icon-box" style="margin-bottom: 12px;">
+                        <i class='bx bxs-calendar icon-purple' style="font-size: 32px;"></i>
+                    </div>
+                    <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #1f2937;">Event Scheduling</h3>
+                    <p style="margin: 0; color: #6b7280; font-size: 14px;">Manage community events</p>
+                </a>
+            </div>
+            <div class="code-block">&lt;a href="Event%20Sheduling.php" class="event-scheduling-card" style="text-decoration: none; display: block;"&gt;
+    &lt;div class="icon-box icon-bg-purple" style="margin-bottom: 12px;"&gt;
+        &lt;i class='bx bxs-calendar icon-purple' style="font-size: 32px;"&gt;&lt;/i&gt;
+    &lt;/div&gt;
+    &lt;h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600;"&gt;Event Scheduling&lt;/h3&gt;
+    &lt;p style="margin: 0; color: var(--text-light); font-size: 14px;"&gt;Manage community events&lt;/p&gt;
+&lt;/a&gt;</div>
+        </div>
+    </div>
+
+    <!-- PHP Include Method -->
+    <div class="section">
+        <h2>8. Using PHP Include (Recommended)</h2>
+        <div class="button-example">
+            <div class="code-block">&lt;?php
+// Include the button component
+include 'event-scheduling-button.php';
+
+// Use different button types:
+echo getEventSchedulingButton('link');        // Navigation link
+echo getEventSchedulingButton('primary');     // Primary button
+echo getEventSchedulingButton('large');       // Large button
+echo getEventSchedulingButton('card');        // Card style
+echo getEventSchedulingButton('icon');        // Icon only
+
+// Custom text and icon:
+echo getEventSchedulingButton('primary', 'My Events', 'bx-calendar-event');
+?&gt;</div>
+        </div>
+    </div>
+
+    <div class="section" style="background: #ecfdf5; border-left: 4px solid #10b981;">
+        <h2 style="color: #047857;">Quick Copy - Most Common</h2>
+        <div class="code-block" style="background: white; color: #1f2937;">&lt;!-- Simple Link Button --&gt;
+&lt;a href="Event%20Sheduling.php" class="btn btn-primary" style="text-decoration: none;"&gt;
+    &lt;i class='bx bxs-calendar'&gt;&lt;/i&gt; Event Scheduling
+&lt;/a&gt;
+
+&lt;!-- Navigation Menu Item --&gt;
+&lt;a href="Event%20Sheduling.php" class="menu-item"&gt;
+    &lt;div class="icon-box icon-bg-purple"&gt;
+        &lt;i class='bx bxs-calendar icon-purple'&gt;&lt;/i&gt;
+    &lt;/div&gt;
+    &lt;span class="font-medium"&gt;Event Scheduling&lt;/span&gt;
+&lt;/a&gt;</div>
+    </div>
+</body>
+</html>
+
+
+
+
+
+
+
