@@ -1,5 +1,13 @@
 <?php
 require_once 'config/db_connection.php';
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS volunteer_registration_status (id INT AUTO_INCREMENT PRIMARY KEY, status ENUM('open','closed') NOT NULL DEFAULT 'closed', updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+    $stmt = $pdo->query("SELECT COUNT(*) AS c FROM volunteer_registration_status");
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || (int)$row['c'] === 0) {
+        $pdo->exec("INSERT INTO volunteer_registration_status (status) VALUES ('closed')");
+    }
+} catch (PDOException $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -13,15 +21,9 @@ require_once 'config/db_connection.php';
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
           crossorigin=""/>
     <style>
-        /* <CHANGE> Completely redesigned modern landing page with premium aesthetics */
         :root {
-<<<<<<< HEAD
             --primary-color: #cd26dcff;
             --primary-dark: #b41cb9ff;
-=======
-            --primary-color: #dc2626;
-            --primary-dark: #991b1b;
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
             --primary-light: #fef2f2;
             --secondary-color: #1e40af;
             --accent-color: #f59e0b;
@@ -42,10 +44,6 @@ require_once 'config/db_connection.php';
 
         body {
             font-family: 'Poppins', sans-serif;
-<<<<<<< HEAD
-            background: var(--background-color);
-=======
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
             color: var(--text-color);
             line-height: 1.6;
             min-height: 100vh;
@@ -101,17 +99,13 @@ require_once 'config/db_connection.php';
             justify-content: center;
             color: white;
             font-size: 24px;
-<<<<<<< HEAD
-            box-shadow: 0 4px 15px rgba(203, 33, 178, 0.3);
-=======
-            box-shadow: 0 8px 25px rgba(220, 38, 38, 0.3);
+            box-shadow: 0 8px 25px rgba(203, 33, 178, 0.3);
             background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
             transition: all 0.3s ease;
         }
 
         .logo-icon:hover {
             transform: scale(1.05);
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
         }
 
         .logo-text h1 {
@@ -215,8 +209,10 @@ require_once 'config/db_connection.php';
             font-weight: 800;
             margin-bottom: 20px;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            color: transparent;
             line-height: 1.2;
             letter-spacing: -1px;
         }
@@ -780,13 +776,7 @@ require_once 'config/db_connection.php';
         <div class="container">
             <div class="header-content">
                 <div class="logo">
-<<<<<<< HEAD
-                    <img src="img/cpas-logo.png" alt="Barangay Commonwealth Fire & Rescue Services Logo" class="logo-icon" style="width:50px;height:50px;object-fit:cover;display:block;">
-=======
-                    <div class="logo-icon">
-                        <i class="fas fa-fire-extinguisher"></i>
-                    </div>
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
+                    <img src="img/cpas-logo.png" alt="Barangay Commonwealth Community Policing and Surveillance Logo" class="logo-icon" style="width:50px;height:50px;object-fit:cover;display:block;">
                     <div class="logo-text">
                         <h1>Barangay Commonwealth</h1>
                         <p>Community Policing and Surveillance</p>
@@ -805,11 +795,7 @@ require_once 'config/db_connection.php';
         <div class="hero-bg"></div>
         <div class="container">
             <h1>Your Safety Is Our Priority</h1>
-<<<<<<< HEAD
             <p>Barangay Commonwealth Community Policing and Surveillance is committed to providing timely and effective community policing and surveillance services to ensure the safety and security of our community members.</p>
-=======
-            <p>Barangay Commonwealth Fire & Rescue Services is committed to providing prompt emergency response, community safety education, and proactive incident prevention.</p>
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
             <div class="hero-buttons">
                 <a href="#" class="btn btn-emergency">
                     <i class="fas fa-phone-alt"></i>
@@ -835,13 +821,8 @@ require_once 'config/db_connection.php';
                     <div class="service-icon">
                         <i class="fas fa-clipboard-list"></i>
                     </div>
-<<<<<<< HEAD
                     <h3>Emergency Assistance</h3>
                     <p>Receive immediate help from our trained barangay officers and community members in emergency situations.</p>
-=======
-                    <h3>Incident Reporting</h3>
-                    <p>Report fire incidents, accidents, or emergencies through our streamlined incident reporting system for immediate response.</p>
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
                     <a href="#" class="service-link">
                         Report Incident <i class="fas fa-arrow-right"></i>
                     </a>
@@ -904,10 +885,13 @@ require_once 'config/db_connection.php';
             
             <div class="volunteer-content">
                 <?php
-                $status_query = "SELECT status FROM volunteer_registration_status ORDER BY updated_at DESC LIMIT 1";
-                $status_result = $pdo->query($status_query);
-                $registration_status = $status_result->fetch();
-                
+                try {
+                    $status_query = "SELECT status FROM volunteer_registration_status ORDER BY updated_at DESC LIMIT 1";
+                    $status_result = $pdo->query($status_query);
+                    $registration_status = $status_result->fetch(PDO::FETCH_ASSOC);
+                } catch (PDOException $e) {
+                    $registration_status = ['status' => 'closed'];
+                }
                 if (!$registration_status || $registration_status['status'] === 'closed') {
                 ?>
                     <div style="text-align: center; padding: 70px 50px; background: rgba(255, 255, 255, 0.97); border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.25);">
@@ -930,7 +914,7 @@ require_once 'config/db_connection.php';
                 ?>
                     <div style="text-align: center;">
                         <div style="background: rgba(255, 255, 255, 0.97); border-radius: 20px; padding: 70px 50px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.25);">
-                            <div style="font-size: 100px; background: linear-gradient(135deg, #16a34a 0%, #059669 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 25px;">
+                            <div style="font-size: 100px; background: linear-gradient(135deg, #16a34a 0%, #059669 100%); background-clip: text; -webkit-background-clip: text; color: transparent; -webkit-text-fill-color: transparent; margin-bottom: 25px;">
                                 <i class="fas fa-heart"></i>
                             </div>
                             <h3 style="color: #1f2937; margin-bottom: 20px; font-size: 2.2rem; font-weight: 800;">Join Our Volunteer Team</h3>
