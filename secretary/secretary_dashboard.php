@@ -1067,20 +1067,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
                 
                 <div class="menu-items">
-                    <a href="#" class="menu-item">
-                        <div class="icon-box icon-bg-indigo">
-                            <i class='bx bxs-cog icon-indigo'></i>
+                    <div class="menu-item" id="sidebar-settings-btn">
+                        <div class="icon-box icon-bg-teal">
+                            <i class='bx bxs-cog icon-teal'></i>
                         </div>
                         <span class="font-medium">Settings</span>
-                    </a>
-                    
-                    <a href="../profile.php" class="menu-item">
-                        <div class="icon-box icon-bg-orange">
-                            <i class='bx bxs-user icon-orange'></i>
-                        </div>
-                        <span class="font-medium">Profile</span>
-                    </a>
-                    
+                    </div>
+                    <div id="sidebar-settings-submenu" class="submenu">
+                        <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
+                        <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
+                    </div>
                     <a href="../includes/logout.php" class="menu-item">
                         <div class="icon-box icon-bg-red">
                             <i class='bx bx-log-out icon-red'></i>
@@ -3745,6 +3741,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             });
         }
+        const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
+        const sidebarSettingsSubmenu = document.getElementById('sidebar-settings-submenu');
+        if (sidebarSettingsBtn && sidebarSettingsSubmenu) {
+            function closeSidebarSettings() {
+                sidebarSettingsSubmenu.classList.remove('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'false');
+            }
+            function openSidebarSettings() {
+                if (settingsDropdown) settingsDropdown.classList.remove('active');
+                sidebarSettingsSubmenu.classList.add('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'true');
+            }
+            sidebarSettingsBtn.addEventListener('click', function(e){
+                e.preventDefault();
+                e.stopPropagation();
+                if (sidebarSettingsSubmenu.classList.contains('active')) {
+                    closeSidebarSettings();
+                } else {
+                    openSidebarSettings();
+                }
+            });
+            document.addEventListener('click', function(e){
+                if (!sidebarSettingsSubmenu.contains(e.target) && !sidebarSettingsBtn.contains(e.target)) {
+                    closeSidebarSettings();
+                }
+            });
+            document.addEventListener('keydown', function(e){
+                if (e.key === 'Escape') {
+                    closeSidebarSettings();
+                }
+            });
+        }
         function showSettingsSection(id){
             hideDefault();
             const sp = document.getElementById('settings-profile-section');
@@ -3756,8 +3784,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         const settingsProfileBtn = document.getElementById('settings-profile-btn');
         const settingsSecurityBtn = document.getElementById('settings-security-btn');
+        const sidebarSettingsProfileLink = document.getElementById('sidebar-settings-profile-link');
+        const sidebarSettingsSecurityLink = document.getElementById('sidebar-settings-security-link');
         if (settingsProfileBtn) settingsProfileBtn.addEventListener('click', function(){ showSettingsSection('settings-profile-section'); if (settingsDropdown) settingsDropdown.classList.remove('active'); loadProfile(); });
         if (settingsSecurityBtn) settingsSecurityBtn.addEventListener('click', function(){ showSettingsSection('settings-security-section'); if (settingsDropdown) settingsDropdown.classList.remove('active'); });
+        if (sidebarSettingsProfileLink) sidebarSettingsProfileLink.addEventListener('click', function(e){ e.preventDefault(); showSettingsSection('settings-profile-section'); loadProfile(); });
+        if (sidebarSettingsSecurityLink) sidebarSettingsSecurityLink.addEventListener('click', function(e){ e.preventDefault(); showSettingsSection('settings-security-section'); });
         const settingsTabProfile = document.getElementById('settings-tab-profile');
         const settingsTabSecurity = document.getElementById('settings-tab-security');
         if (settingsTabProfile) settingsTabProfile.addEventListener('click', function(){ showSettingsSection('settings-profile-section'); loadProfile(); });

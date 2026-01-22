@@ -51,13 +51,13 @@ function send_verification_email($email, $name, $verification_code) {
                 <div style='background: linear-gradient(135deg, #cd26dc, #b41cb9); padding: 26px; text-align: center; color: white;'>
                     <img src='cid:cpaslogo' alt='Community Policing and Surveillance' style='width:48px;height:48px;border-radius:50%;object-fit:cover;margin-bottom:8px;'>
                     <h1 style='margin: 0; font-size: 24px; letter-spacing: .5px;'>Community Policing and Surveillance</h1>
-                    <p style='margin: 6px 0 0 0; opacity: 0.9;'>Volunteer Registration</p>
+                    <p style='margin: 6px 0 0 0; opacity: 0.9;'>Account Registration</p>
                 </div>
                 
                 <div style='padding: 26px;'>
-                    <h2 style='color: #cd26dc; margin-top: 0;'>Welcome to Our Volunteer Team!</h2>
+                    <h2 style='color: #cd26dc; margin-top: 0;'>Welcome to Our Team!</h2>
                     <p>Hello <strong>$name</strong>,</p>
-                    <p>Thank you for registering as a volunteer with <strong>Community Policing and Surveillance</strong>. To complete your registration and join our community safety program, please verify your email address using the code below:</p>
+                    <p>Thank you for registering as a team with <strong>Community Policing and Surveillance</strong>. To complete your registration and join our community safety program, please verify your email address using the code below:</p>
                     
                     <div style='text-align: center; margin: 24px 0;'>
                         <div style='display: inline-block; padding: 18px 36px; background: #faf5ff; border: 3px solid #cd26dc; border-radius: 10px; font-family: monospace;'>
@@ -72,7 +72,7 @@ function send_verification_email($email, $name, $verification_code) {
                     </div>
                     
                     <p style='color: #666; font-size: 14px; margin-top: 22px;'>
-                        If you did not request to join as a volunteer, please ignore this email to help us maintain the security of our community safety program.
+                        If you did not request to join as a team, please ignore this email to help us maintain the security of our community safety program.
                     </p>
                 </div>
                 
@@ -221,18 +221,18 @@ function send_password_reset_email($email, $name, $reset_link) {
         
         // Content
         $mail->isHTML(true);
-        $mail->Subject = 'Password Reset Request - Fire & Rescue Services Management';
+        $mail->Subject = 'Password Reset Request - Community Policing & Surveillance';
         $mail->Body = "
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fffaf5; border: 1px solid #ffe4d6; border-radius: 10px; overflow: hidden;'>
                 <div style='background: linear-gradient(135deg, #dc2626, #b91c1c); padding: 30px; text-align: center; color: white;'>
-                    <h1 style='margin: 0; font-size: 28px;'>🚒 Fire & Rescue Services</h1>
+                    <h1 style='margin: 0; font-size: 28px;'>🚒 Community Policing & Surveillance</h1>
                     <p style='margin: 10px 0 0 0; opacity: 0.9;'>Emergency Response & Safety Management</p>
                 </div>
                 
                 <div style='padding: 30px;'>
                     <h2 style='color: #dc2626; margin-top: 0;'>Password Reset Request</h2>
                     <p>Hello <strong>$name</strong>,</p>
-                    <p>We received a request to reset your password for your Fire & Rescue Services Management account. To ensure the security of your emergency response access, please use the link below to create a new password:</p>
+                    <p>We received a request to reset your password for your Community Policing & Surveillance Management account. To ensure the security of your emergency response access, please use the link below to create a new password:</p>
                     
                     <div style='text-align: center; margin: 30px 0;'>
                         <a href='$reset_link' style='display: inline-block; padding: 15px 40px; background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; border: none; cursor: pointer;'>

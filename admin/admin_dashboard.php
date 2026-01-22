@@ -588,13 +588,6 @@ $stmt = null;
             <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
         </div>
         
-        <a href="#" class="menu-item">
-            <div class="icon-box icon-bg-indigo">
-                <i class='bx bxs-help-circle icon-indigo'></i>
-            </div>
-            <span class="font-medium">Help</span>
-        </a>
-        
         <a href="../includes/logout.php" class="menu-item">
             <div class="icon-box icon-bg-red">
                 <i class='bx bx-log-out icon-red'></i>

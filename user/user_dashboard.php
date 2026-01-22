@@ -191,20 +191,16 @@ $stmt = null;
     <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
     
     <div class="menu-items">
-        <a href="#" class="menu-item">
+        <div class="menu-item" id="sidebar-settings-btn">
             <div class="icon-box icon-bg-teal">
                 <i class='bx bxs-cog icon-teal'></i>
             </div>
             <span class="font-medium">Settings</span>
-        </a>
-        
-       <a href="../profile.php" class="menu-item">
-                        <div class="icon-box icon-bg-orange">
-                            <i class='bx bxs-user icon-orange'></i>
-                        </div>
-                        <span class="font-medium">Profile</span>
-                    </a>
-        
+        </div>
+        <div id="sidebar-settings-submenu" class="submenu">
+            <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
+            <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
+        </div>
         <a href="../includes/logout.php" class="menu-item">
             <div class="icon-box icon-bg-red">
                 <i class='bx bx-log-out icon-red'></i>
@@ -1661,6 +1657,44 @@ $stmt = null;
                 this.classList.add('active');
             });
         });
+        
+        const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
+        const sidebarSettingsSubmenu = document.getElementById('sidebar-settings-submenu');
+        if (sidebarSettingsBtn && sidebarSettingsSubmenu) {
+            function closeSidebarSettings() {
+                sidebarSettingsSubmenu.classList.remove('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'false');
+            }
+            function openSidebarSettings() {
+                sidebarSettingsSubmenu.classList.add('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'true');
+            }
+            sidebarSettingsBtn.addEventListener('click', function(e){
+                e.preventDefault();
+                e.stopPropagation();
+                if (sidebarSettingsSubmenu.classList.contains('active')) {
+                    closeSidebarSettings();
+                } else {
+                    openSidebarSettings();
+                }
+            });
+            document.addEventListener('click', function(e){
+                if (!sidebarSettingsSubmenu.contains(e.target) && !sidebarSettingsBtn.contains(e.target)) {
+                    closeSidebarSettings();
+                }
+            });
+            document.addEventListener('keydown', function(e){
+                if (e.key === 'Escape') {
+                    closeSidebarSettings();
+                }
+            });
+            const settingsLinks = document.querySelectorAll('#sidebar-settings-submenu .submenu-item');
+            settingsLinks.forEach(function(link){
+                link.addEventListener('click', function(){
+                    closeSidebarSettings();
+                });
+            });
+        }
         
         const themeToggle = document.getElementById('theme-toggle');
         const themeIcon = themeToggle.querySelector('i');

@@ -381,19 +381,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
     
     <div class="menu-items">
-        <a href="#" class="menu-item">
+        <div class="menu-item" id="sidebar-settings-btn">
             <div class="icon-box icon-bg-teal">
                 <i class='bx bxs-cog icon-teal'></i>
             </div>
             <span class="font-medium">Settings</span>
-        </a>
+        </div>
+        <div id="sidebar-settings-submenu" class="submenu">
+            <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
+            <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
+        </div>
         
-        <a href="#" class="menu-item">
-            <div class="icon-box icon-bg-indigo">
-                <i class='bx bxs-help-circle icon-indigo'></i>
-            </div>
-            <span class="font-medium">Help</span>
-        </a>
+
         
         <a href="../includes/logout.php" class="menu-item">
             <div class="icon-box icon-bg-red">
@@ -3329,8 +3328,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             });
         }
+        const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
+        const sidebarSettingsSubmenu = document.getElementById('sidebar-settings-submenu');
+        if (sidebarSettingsBtn && sidebarSettingsSubmenu) {
+            function closeSidebarSettings() {
+                sidebarSettingsSubmenu.classList.remove('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'false');
+            }
+            function openSidebarSettings() {
+                if (settingsDropdown) { settingsDropdown.classList.remove('active'); }
+                if (settingsContainer) { settingsContainer.classList.remove('open'); }
+                if (settingsButton) { settingsButton.setAttribute('aria-expanded','false'); }
+                sidebarSettingsSubmenu.classList.add('active');
+                sidebarSettingsBtn.setAttribute('aria-expanded', 'true');
+            }
+            sidebarSettingsBtn.addEventListener('click', function(e){
+                e.preventDefault();
+                e.stopPropagation();
+                if (sidebarSettingsSubmenu.classList.contains('active')) {
+                    closeSidebarSettings();
+                } else {
+                    openSidebarSettings();
+                }
+            });
+            sidebarSettingsBtn.addEventListener('keydown', function(e){
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (sidebarSettingsSubmenu.classList.contains('active')) {
+                        closeSidebarSettings();
+                    } else {
+                        openSidebarSettings();
+                    }
+                }
+                if (e.key === 'Escape') {
+                    closeSidebarSettings();
+                }
+            });
+            document.addEventListener('click', function(e){
+                if (!sidebarSettingsSubmenu.contains(e.target) && !sidebarSettingsBtn.contains(e.target)) {
+                    closeSidebarSettings();
+                }
+            });
+            document.addEventListener('keydown', function(e){
+                if (e.key === 'Escape') {
+                    closeSidebarSettings();
+                }
+            });
+        }
         const settingsProfileBtn = document.getElementById('settings-profile-btn');
         const settingsSecurityBtn = document.getElementById('settings-security-btn');
+        const sidebarSettingsProfileLink = document.getElementById('sidebar-settings-profile-link');
+        const sidebarSettingsSecurityLink = document.getElementById('sidebar-settings-security-link');
         const settingsTabProfile = document.getElementById('settings-tab-profile');
         const settingsTabSecurity = document.getElementById('settings-tab-security');
         function showSection(id){ 
@@ -3358,6 +3407,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if (settingsSecurityBtn) settingsSecurityBtn.addEventListener('click', function(){ showSection('settings-security-section'); if (settingsDropdown) settingsDropdown.classList.remove('active'); });
         if (settingsTabProfile) settingsTabProfile.addEventListener('click', function(){ showSection('settings-profile-section'); loadProfile(); });
         if (settingsTabSecurity) settingsTabSecurity.addEventListener('click', function(){ showSection('settings-security-section'); });
+        if (sidebarSettingsProfileLink) sidebarSettingsProfileLink.addEventListener('click', function(e){ e.preventDefault(); showSection('settings-profile-section'); loadProfile(); });
+        if (sidebarSettingsSecurityLink) sidebarSettingsSecurityLink.addEventListener('click', function(e){ e.preventDefault(); showSection('settings-security-section'); });
         const profileForm = document.getElementById('profile-form');
         const profileStatus = document.getElementById('profile-status');
         const avatarInput = document.getElementById('profile-avatar-input');

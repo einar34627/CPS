@@ -1240,7 +1240,7 @@ if (isset($_POST['resend_verification'])) {
         </div>
         
         <div class="footer">
-            © 2025 Fire & Rescue Services Management
+            © 2025 Community Policing & Surveillance
         </div>
     </div>
     

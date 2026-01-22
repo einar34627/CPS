@@ -970,7 +970,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
         
         <div class="footer">
-            © 2025 Fire & Rescue Services Management
+            © 2025 Community Policing & Surveillance
         </div>
     </div>
     
