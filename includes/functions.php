@@ -38,56 +38,58 @@ function send_verification_email($email, $name, $verification_code) {
         );
         
         // Recipients
-        $mail->setFrom('41004.FRSM@gmail.com', 'Fire & Rescue Services Management');
+        $mail->setFrom('41004.FRSM@gmail.com', 'Community Policing and Surveillance');
         $mail->addAddress($email, $name);
-        $mail->addReplyTo('41004.FRSM@gmail.com', 'Fire & Rescue Services Management');
+        $mail->addReplyTo('41004.FRSM@gmail.com', 'Community Policing and Surveillance');
+        $mail->addEmbeddedImage('../img/cpas-logo.png', 'cpaslogo', 'cpas-logo.png');
         
         // Content
         $mail->isHTML(true);
         $mail->Subject = 'Volunteer Registration - Email Verification Required';
         $mail->Body = "
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fffaf5; border: 1px solid #ffe4d6; border-radius: 10px; overflow: hidden;'>
-                <div style='background: linear-gradient(135deg, #dc2626, #b91c1c); padding: 30px; text-align: center; color: white;'>
-                    <h1 style='margin: 0; font-size: 28px;'>🚒 Fire & Rescue Services</h1>
-                    <p style='margin: 10px 0 0 0; opacity: 0.9;'>Volunteer Registration</p>
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fffaf5; border: 1px solid #f3e8ff; border-radius: 10px; overflow: hidden;'>
+                <div style='background: linear-gradient(135deg, #cd26dc, #b41cb9); padding: 26px; text-align: center; color: white;'>
+                    <img src='cid:cpaslogo' alt='Community Policing and Surveillance' style='width:48px;height:48px;border-radius:50%;object-fit:cover;margin-bottom:8px;'>
+                    <h1 style='margin: 0; font-size: 24px; letter-spacing: .5px;'>Community Policing and Surveillance</h1>
+                    <p style='margin: 6px 0 0 0; opacity: 0.9;'>Volunteer Registration</p>
                 </div>
                 
-                <div style='padding: 30px;'>
-                    <h2 style='color: #dc2626; margin-top: 0;'>Welcome to Our Volunteer Team!</h2>
+                <div style='padding: 26px;'>
+                    <h2 style='color: #cd26dc; margin-top: 0;'>Welcome to Our Volunteer Team!</h2>
                     <p>Hello <strong>$name</strong>,</p>
-                    <p>Thank you for registering as a volunteer with <strong>Fire & Rescue Services Management</strong>. To complete your registration and join our emergency response team, please verify your email address using the code below:</p>
+                    <p>Thank you for registering as a volunteer with <strong>Community Policing and Surveillance</strong>. To complete your registration and join our community safety program, please verify your email address using the code below:</p>
                     
-                    <div style='text-align: center; margin: 30px 0;'>
-                        <div style='display: inline-block; padding: 20px 40px; background: #fef2f2; border: 3px solid #dc2626; border-radius: 10px; font-family: monospace;'>
-                            <h3 style='color: #dc2626; font-size: 32px; margin: 0; letter-spacing: 5px; font-weight: bold;'>$verification_code</h3>
+                    <div style='text-align: center; margin: 24px 0;'>
+                        <div style='display: inline-block; padding: 18px 36px; background: #faf5ff; border: 3px solid #cd26dc; border-radius: 10px; font-family: monospace;'>
+                            <h3 style='color: #b41cb9; font-size: 30px; margin: 0; letter-spacing: 5px; font-weight: bold;'>$verification_code</h3>
                         </div>
                     </div>
                     
-                    <div style='background: #fffbeb; padding: 15px; border-radius: 5px; border-left: 4px solid #f59e0b;'>
-                        <p style='margin: 0; color: #92400e; font-size: 14px;'>
+                    <div style='background: #f5f3ff; padding: 14px; border-radius: 5px; border-left: 4px solid #b41cb9;'>
+                        <p style='margin: 0; color: #5b21b6; font-size: 14px;'>
                             <strong>⏰ Important:</strong> This verification code will expire in 15 minutes.
                         </p>
                     </div>
                     
-                    <p style='color: #666; font-size: 14px; margin-top: 25px;'>
-                        If you did not request to join as a volunteer, please ignore this email to help us maintain the security of our emergency response system.
+                    <p style='color: #666; font-size: 14px; margin-top: 22px;'>
+                        If you did not request to join as a volunteer, please ignore this email to help us maintain the security of our community safety program.
                     </p>
                 </div>
                 
-                <div style='background: #fef2f2; padding: 20px; text-align: center; border-top: 1px solid #fecaca;'>
-                    <p style='margin: 0; color: #991b1b; font-size: 14px;'>
-                        <strong>🚨 Safety First:</strong> Thank you for your commitment to community safety and emergency response.
+                <div style='background: #faf5ff; padding: 20px; text-align: center; border-top: 1px solid #ede9fe;'>
+                    <p style='margin: 0; color: #7c3aed; font-size: 14px;'>
+                        <strong>Safety First:</strong> Thank you for your commitment to community safety and vigilance.
                     </p>
                     <p style='margin: 10px 0 0 0; color: #666; font-size: 12px;'>
                         Best regards,<br>
-                        <strong>Fire & Rescue Services Management Team</strong><br>
-                        Protecting lives and property through dedicated volunteers
+                        <strong>Community Policing and Surveillance Team</strong><br>
+                        Working together to keep our community safe
                     </p>
                 </div>
             </div>
         ";
         
-        $mail->AltBody = "Hello $name,\n\nThank you for registering as a volunteer with Fire & Rescue Services Management. To complete your registration, please use the verification code below:\n\nVerification Code: $verification_code\n\nThis code will expire in 15 minutes.\n\nIf you did not request to join as a volunteer, please ignore this email.\n\n🚨 Safety First: Thank you for your commitment to community safety.\n\nBest regards,\nFire & Rescue Services Management Team";
+        $mail->AltBody = "Hello $name,\n\nThank you for registering as a volunteer with Community Policing and Surveillance. To complete your registration, please use the verification code below:\n\nVerification Code: $verification_code\n\nThis code will expire in 15 minutes.\n\nIf you did not request to join as a volunteer, please ignore this email.\n\nSafety First: Thank you for your commitment to community safety.\n\nBest regards,\nCommunity Policing and Surveillance Team";
         
         // Test connection first
         if (!$mail->smtpConnect()) {
@@ -121,8 +123,9 @@ function send_verification_email_with_link($email, $name, $verification_code) {
         $mail->Port = 587;
         
         // Recipients
-        $mail->setFrom('41004.FRSM@gmail.com', 'Fire & Rescue Services Management');
+        $mail->setFrom('41004.FRSM@gmail.com', 'Community Policing and Surveillance');
         $mail->addAddress($email, $name);
+        $mail->addEmbeddedImage('../img/cpas-logo.png', 'cpaslogo_login', 'cpas-logo.png');
         
         // Create verification link
         $verification_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . "/verify_email_login.php?email=" . urlencode($email) . "&code=" . $verification_code;
@@ -131,63 +134,64 @@ function send_verification_email_with_link($email, $name, $verification_code) {
         $mail->isHTML(true);
         $mail->Subject = 'Complete Your Login - Email Verification Required';
         $mail->Body = "
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fffaf5; border: 1px solid #ffe4d6; border-radius: 10px; overflow: hidden;'>
-                <div style='background: linear-gradient(135deg, #dc2626, #b91c1c); padding: 30px; text-align: center; color: white;'>
-                    <h1 style='margin: 0; font-size: 28px;'>🚒 Fire & Rescue Services</h1>
-                    <p style='margin: 10px 0 0 0; opacity: 0.9;'>Emergency Response & Safety Management</p>
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #fffaf5; border: 1px solid #f3e8ff; border-radius: 10px; overflow: hidden;'>
+                <div style='background: linear-gradient(135deg, #cd26dc, #b41cb9); padding: 26px; text-align: center; color: white;'>
+                    <img src='cid:cpaslogo_login' alt='Community Policing and Surveillance' style='width:42px;height:42px;border-radius:50%;object-fit:cover;margin-bottom:8px;'>
+                    <h1 style='margin: 0; font-size: 24px;'>Community Policing and Surveillance</h1>
+                    <p style='margin: 6px 0 0 0; opacity: 0.9;'>Community Safety & Vigilance</p>
                 </div>
                 
-                <div style='padding: 30px;'>
-                    <h2 style='color: #dc2626; margin-top: 0;'>Complete Your Login</h2>
+                <div style='padding: 26px;'>
+                    <h2 style='color: #cd26dc; margin-top: 0;'>Complete Your Login</h2>
                     <p>Hello <strong>$name</strong>,</p>
-                    <p>We noticed you tried to login but your email address is not yet verified. To complete your login and access our emergency response services, please verify your email address:</p>
+                    <p>We noticed you tried to login but your email address is not yet verified. To complete your login and access our community safety portal, please verify your email address:</p>
                     
-                    <div style='text-align: center; margin: 30px 0;'>
-                        <a href='$verification_link' style='display: inline-block; padding: 15px 40px; background: linear-gradient(135deg, #dc2626, #b91c1c); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; border: none; cursor: pointer;'>
-                            🚨 Verify Email Address
+                    <div style='text-align: center; margin: 24px 0;'>
+                        <a href='$verification_link' style='display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, #cd26dc, #b41cb9); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; border: none; cursor: pointer;'>
+                            Verify Email Address
                         </a>
                     </div>
                     
-                    <div style='background: #fef2f2; padding: 20px; border-radius: 8px; margin: 20px 0;'>
-                        <p style='margin: 0 0 15px 0; color: #991b1b; font-weight: bold;'>Alternative Verification Method:</p>
+                    <div style='background: #faf5ff; padding: 16px; border-radius: 8px; margin: 18px 0;'>
+                        <p style='margin: 0 0 12px 0; color: #6b21a8; font-weight: bold;'>Alternative Verification Method:</p>
                         <p style='margin: 0;'>Or copy and paste this link in your browser:</p>
-                        <p style='margin: 10px 0; background: #fecaca; padding: 12px; border-radius: 5px; word-break: break-all; font-size: 12px; color: #991b1b;'>
-                            <a href='$verification_link' style='color: #991b1b;'>$verification_link</a>
+                        <p style='margin: 10px 0; background: #ede9fe; padding: 12px; border-radius: 5px; word-break: break-all; font-size: 12px; color: #6b21a8;'>
+                            <a href='$verification_link' style='color: #6b21a8;'>$verification_link</a>
                         </p>
                         
                         <p style='margin: 15px 0 0 0;'>Your verification code is:</p>
-                        <div style='text-align: center; margin: 15px 0;'>
-                            <div style='display: inline-block; padding: 12px 25px; background: #fef2f2; border: 2px dashed #dc2626; border-radius: 6px;'>
-                                <strong style='font-size: 24px; color: #dc2626; letter-spacing: 3px;'>$verification_code</strong>
+                        <div style='text-align: center; margin: 12px 0;'>
+                            <div style='display: inline-block; padding: 12px 25px; background: #faf5ff; border: 2px dashed #cd26dc; border-radius: 6px;'>
+                                <strong style='font-size: 24px; color: #b41cb9; letter-spacing: 3px;'>$verification_code</strong>
                             </div>
                         </div>
                     </div>
                     
-                    <div style='background: #fffbeb; padding: 15px; border-radius: 5px; border-left: 4px solid #f59e0b;'>
-                        <p style='margin: 0; color: #92400e; font-size: 14px;'>
+                    <div style='background: #f5f3ff; padding: 14px; border-radius: 5px; border-left: 4px solid #b41cb9;'>
+                        <p style='margin: 0; color: #5b21b6; font-size: 14px;'>
                             <strong>⏰ Time Sensitive:</strong> This verification link will expire in 30 minutes.
                         </p>
                     </div>
                     
-                    <p style='color: #666; font-size: 14px; margin-top: 25px;'>
-                        If you didn't try to login to your account, please ignore this email to help us maintain security and emergency response integrity.
+                    <p style='color: #666; font-size: 14px; margin-top: 22px;'>
+                        If you didn't try to login to your account, please ignore this email to help us maintain security and community safety.
                     </p>
                 </div>
                 
-                <div style='background: #fef2f2; padding: 20px; text-align: center; border-top: 1px solid #fecaca;'>
-                    <p style='margin: 0; color: #991b1b; font-size: 14px;'>
-                        <strong>🔥 Emergency Preparedness:</strong> Know your emergency exits and keep fire extinguishers accessible.
+                <div style='background: #faf5ff; padding: 20px; text-align: center; border-top: 1px solid #ede9fe;'>
+                    <p style='margin: 0; color: #7c3aed; font-size: 14px;'>
+                        <strong>Community Safety:</strong> Stay vigilant and report suspicious activity.
                     </p>
                     <p style='margin: 10px 0 0 0; color: #666; font-size: 12px;'>
                         Best regards,<br>
-                        <strong>Fire & Rescue Services Management Team</strong><br>
-                        Committed to saving lives and protecting communities
+                        <strong>Community Policing and Surveillance Team</strong><br>
+                        Working together to keep our community safe
                     </p>
                 </div>
             </div>
         ";
         
-        $mail->AltBody = "Hello $name,\n\nWe noticed you tried to login but your email address is not yet verified. To complete your login and access our emergency response services, please verify your email address.\n\nVerification Code: $verification_code\n\nOr visit this link: $verification_link\n\nEnter this code on the verification page to complete your login.\n\nThis verification code will expire in 30 minutes.\n\nIf you didn't try to login to your account, please ignore this email to help us maintain security and emergency response integrity.\n\n🔥 Emergency Preparedness: Know your emergency exits and keep fire extinguishers accessible.\n\nBest regards,\nFire & Rescue Services Management Team";
+        $mail->AltBody = "Hello $name,\n\nWe noticed you tried to login but your email address is not yet verified. To complete your login and access our community safety portal, please verify your email address.\n\nVerification Code: $verification_code\n\nOr visit this link: $verification_link\n\nEnter this code on the verification page to complete your login.\n\nThis verification code will expire in 30 minutes.\n\nIf you didn't try to login to your account, please ignore this email to help us maintain security.\n\nCommunity Safety: Stay vigilant and report suspicious activity.\n\nBest regards,\nCommunity Policing and Surveillance Team";
         
         $mail->send();
         return true;
@@ -289,6 +293,10 @@ function getUserRoleDashboard($role) {
     switch($role) {
         case 'ADMIN':
             return '../admin/admin_dashboard.php';
+        case 'CAPTAIN':
+            return '../captain/captain_dashboard.php';
+        case 'SECRETARY':
+            return '../secretary/secretary_dashboard.php';
         case 'TANOD':
             return '../tanod/tanod_dashboard.php';
         case 'EMPLOYEE':

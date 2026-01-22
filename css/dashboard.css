@@ -548,6 +548,10 @@
             border-radius: 50%;
             border: 2px solid rgba(255, 255, 255, 0.3);
         }
+        .user-avatar[src$="rei.jfif"],
+        .user-avatar[src^="data:image/"] {
+            display: none;
+        }
         
         .user-info {
             display: flex;
@@ -1356,25 +1360,14 @@
             font-weight: 700;
         }
         
-        .animation-progress {
-            width: 300px;
-            height: 8px;
-            background-color: var(--border-color);
-            border-radius: 4px;
-            overflow: hidden;
+        .spin-loader {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 6px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            animation: spin 0.9s linear infinite;
             margin-bottom: 20px;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .animation-progress-fill {
-            height: 100%;
-            background-color: var(--primary-color);
-            border-radius: 4px;
-            width: 0%;
-            transition: width 5s linear;
         }
         
         .animation-text {
@@ -1396,6 +1389,15 @@
             100% {
                 transform: scale(1);
                 box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+            }
+        }
+        
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
             }
         }
         

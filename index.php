@@ -102,10 +102,17 @@ try {
             box-shadow: 0 8px 25px rgba(203, 33, 178, 0.3);
             background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
             transition: all 0.3s ease;
+            animation: pulse 2.4s ease-in-out infinite;
         }
 
         .logo-icon:hover {
             transform: scale(1.05);
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 8px 25px rgba(203, 33, 178, 0.3); }
+            50% { transform: scale(1.06); box-shadow: 0 12px 32px rgba(203, 33, 178, 0.4); }
+            100% { transform: scale(1); box-shadow: 0 8px 25px rgba(203, 33, 178, 0.3); }
         }
 
         .logo-text h1 {
@@ -654,28 +661,32 @@ try {
             margin-bottom: 25px;
         }
 
-        .loading-bar {
-            width: 100%;
-            height: 5px;
-            background: #e5e7eb;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 20px;
-        }
-
-        #loadingBar {
-            width: 0%;
-            height: 100%;
-            background: linear-gradient(to right, var(--primary-color), var(--secondary-color));
-            transition: width 1.5s ease-in-out;
-        }
-
-        .spinner {
-            font-size: 70px;
-            color: var(--primary-color);
+        .loader {
+            width: 50px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 8px solid #514b82;
+            animation:
+                l20-1 0.8s infinite linear alternate,
+                l20-2 1.6s infinite linear;
             margin-bottom: 25px;
-            animation: spin 2s linear infinite;
         }
+        @keyframes l20-1 {
+            0%    {clip-path: polygon(50% 50%,0       0,  50%   0%,  50%    0%, 50%    0%, 50%    0%, 50%    0% )}
+            12.5% {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100%   0%, 100%   0%, 100%   0% )}
+            25%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 100% 100%, 100% 100% )}
+            50%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+            62.5% {clip-path: polygon(50% 50%,100%    0, 100%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+            75%   {clip-path: polygon(50% 50%,100% 100%, 100% 100%,  100% 100%, 100% 100%, 50%  100%, 0%   100% )}
+            100%  {clip-path: polygon(50% 50%,50%  100%,  50% 100%,   50% 100%,  50% 100%, 50%  100%, 0%   100% )}
+        }
+        @keyframes l20-2 {
+            0%    {transform:scaleY(1)  rotate(0deg)}
+            49.99%{transform:scaleY(1)  rotate(135deg)}
+            50%   {transform:scaleY(-1) rotate(0deg)}
+            100%  {transform:scaleY(-1) rotate(-135deg)}
+        }
+
 
         /* Responsive Design */
         @media (max-width: 992px) {
@@ -970,8 +981,8 @@ try {
     <div id="volunteerModal" class="modal">
         <div class="modal-content">
             <button onclick="closeVolunteerModal()">&times;</button>
-            <div class="spinner">
-                <i class="fas fa-spinner"></i>
+            <div style="display:flex;justify-content:center;">
+                <div class="loader"></div>
             </div>
             <h3>Preparing Application</h3>
             <p>Loading the volunteer application form...</p>
@@ -981,9 +992,7 @@ try {
                     Please have your valid ID and contact information ready
                 </p>
             </div>
-            <div class="loading-bar">
-                <div id="loadingBar"></div>
-            </div>
+            
         </div>
     </div>
 
@@ -1143,13 +1152,7 @@ try {
 
         function openVolunteerApplication() {
             const modal = document.getElementById('volunteerModal');
-            const loadingBar = document.getElementById('loadingBar');
-            
             modal.style.display = 'flex';
-            setTimeout(() => {
-                loadingBar.style.width = '100%';
-            }, 100);
-            
             setTimeout(() => {
                 window.location.href = 'volunteer-application.php';
             }, 1500);
@@ -1157,10 +1160,7 @@ try {
 
         function closeVolunteerModal() {
             const modal = document.getElementById('volunteerModal');
-            const loadingBar = document.getElementById('loadingBar');
-            
             modal.style.display = 'none';
-            loadingBar.style.width = '0%';
         }
 
         document.getElementById('volunteerModal').addEventListener('click', function(e) {

@@ -226,6 +226,30 @@ $status_counts_stmt = null;
             gap: 12px;
             margin-top: 20px;
         }
+        .loader {
+            width: 50px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 8px solid #514b82;
+            animation:
+                l20-1 0.8s infinite linear alternate,
+                l20-2 1.6s infinite linear;
+        }
+        @keyframes l20-1 {
+            0%    {clip-path: polygon(50% 50%,0       0,  50%   0%,  50%    0%, 50%    0%, 50%    0%, 50%    0% )}
+            12.5% {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100%   0%, 100%   0%, 100%   0% )}
+            25%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 100% 100%, 100% 100% )}
+            50%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+            62.5% {clip-path: polygon(50% 50%,100%    0, 100%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+            75%   {clip-path: polygon(50% 50%,100% 100%, 100% 100%,  100% 100%, 100% 100%, 50%  100%, 0%   100% )}
+            100%  {clip-path: polygon(50% 50%,50%  100%,  50% 100%,   50% 100%,  50% 100%, 50%  100%, 0%   100% )}
+        }
+        @keyframes l20-2 {
+            0%    {transform:scaleY(1)  rotate(0deg)}
+            49.99%{transform:scaleY(1)  rotate(135deg)}
+            50%   {transform:scaleY(-1) rotate(0deg)}
+            100%  {transform:scaleY(-1) rotate(-135deg)}
+        }
 
         .primary-button, .secondary-button {
             padding: 12px 20px;
@@ -287,6 +311,7 @@ $status_counts_stmt = null;
             font-weight: 800;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 8px;
         }
@@ -1186,6 +1211,7 @@ $status_counts_stmt = null;
             font-weight: 800;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -1963,8 +1989,10 @@ $status_counts_stmt = null;
             // Show loading state
             document.getElementById('modal-body').innerHTML = `
                 <div style="text-align: center; padding: 40px;">
-                    <i class='bx bx-loader-circle bx-spin' style="font-size: 48px; color: var(--primary-color);"></i>
-                    <p style="margin-top: 16px; color: var(--text-light);">Loading volunteer details...</p>
+                    <div style="display:flex;justify-content:center;margin-bottom:12px;">
+                        <div class="loader"></div>
+                    </div>
+                    <p style="margin-top: 4px; color: var(--text-light);">Loading volunteer details...</p>
                 </div>
             `;
             

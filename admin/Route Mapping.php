@@ -454,12 +454,30 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             padding: 20px;
             border: 1px solid var(--border);
         }
+        
+        .overlay {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            top: 0;
+            padding: 0 16px;
+            z-index: 10;
+        }
+        .overlay .panel {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: transparent;
+            position: relative;
+        }
 
         #route-map {
             width: 100%;
-            height: 420px;
+            height: 100%;
             border-radius: 16px;
-            margin-bottom: 16px;
+            margin-bottom: 0;
             background: #e2e8f0;
             border: 1px solid var(--border);
             position: relative;
@@ -470,9 +488,19 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
         }
 
         .map-tools {
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            bottom: 16px;
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
+            padding: 10px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: saturate(180%) blur(8px);
+            box-shadow: 0 6px 14px rgba(0,0,0,0.08);
+            z-index: 2;
         }
 
         .map-summary {
@@ -593,13 +621,8 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
     <div class="page">
         <div class="page-header">
             <div>
-                <p><a href="admin_dashboard.php" style="text-decoration:none;color:var(--muted);"><i class='bx bx-arrow-back'></i> Back to dashboard</a></p>
                 <h1>Patrol Route Mapping</h1>
                 <p>Design, annotate, and monitor patrol routes with live spatial context.</p>
-            </div>
-            <div class="actions">
-                <a href="#route-form" class="btn btn-primary"><i class='bx bx-map-pin'></i>Save New Route</a>
-                <button class="btn btn-outline" onclick="window.print()"><i class='bx bx-printer'></i>Print Summary</button>
             </div>
         </div>
 
@@ -635,10 +658,8 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             </div>
         </div>
 
-        <div class="layout">
+        <div class="overlay">
             <div class="panel">
-                <h2 style="margin-top:0;">Interactive Map Builder</h2>
-                <p style="color:var(--muted); margin-top:4px;">Click on the map to drop waypoints. Use the controls below to manage the current route.</p>
                 <div id="route-map"></div>
                 <div class="map-tools">
                     <input type="text" class="input" id="search-query" placeholder="Search place or address..." style="flex:1; min-width:220px;">
@@ -649,123 +670,9 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                     <button class="btn btn-outline" type="button" id="finish-route"><i class='bx bx-current-location'></i>Fit to Route</button>
                     <button class="btn btn-outline" type="button" id="sample-route"><i class='bx bx-map'></i>Sample Path</button>
                 </div>
-                <div class="map-summary">
-                    <h3>Waypoint Summary</h3>
-                    <p style="margin:0 0 8px;color:var(--muted);" id="route-distance">Select map points to generate a route.</p>
-                    <ul class="waypoints" id="waypoint-list"></ul>
-                </div>
-            </div>
-            <div class="panel">
-                <h2 id="route-form" style="margin-top:0;">Route Details</h2>
-                <p style="color:var(--muted); margin-top:4px;">Complete operational metadata for the route you are mapping. This information drives analytics and reporting.</p>
-                <form method="POST" autocomplete="off" id="route-details-form">
-                    <div class="form-group">
-                        <label for="route_name">Stress *</label>
-                        <input type="text" class="input" id="route_name" name="route_name" placeholder="e.g., Zone 3 Night Patrol" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="zone"><Address></Address></label>
-                        <input type="text" class="input" id="zone" name="zone" placeholder="Barangay 12 - Coastal Strip">
-                    </div>
-                    <div class="form-group">
-                        <label for="patrol_type">Patrol Type</label>
-                        <select class="select" id="patrol_type" name="patrol_type">
-                            <option value="">Select type</option>
-                            <option value="Foot">Foot Patrol</option>
-                            <option value="Vehicle">Vehicle Patrol</option>
-                            <option value="Motorcycle">Motorcycle</option>
-                            <option value="Bicycle">Bicycle</option>
-                            <option value="Mixed">Mixed Coverage</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="priority">Priority Level</label>
-                        <select class="select" id="priority" name="priority">
-                            <option value="Normal">Normal</option>
-                            <option value="High">High</option>
-                            <option value="Low">Low</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="status">Operational Status</label>
-                        <select class="select" id="status" name="status">
-                            <option value="Planned">Planned</option>
-                            <option value="Active">Active</option>
-                            <option value="Ongoing">Ongoing</option>
-                            <option value="Complete">Complete</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="schedule_window">Schedule Window</label>
-                        <input type="text" class="input" id="schedule_window" name="schedule_window" placeholder="Daily 18:00 - 23:00">
-                    </div>
-                    <div class="form-group">
-                        <label for="notes">Notes / Alerts</label>
-                        <textarea id="notes" name="notes" placeholder="Add checkpoints, critical context, or reminders."></textarea>
-                    </div>
-                    <input type="hidden" name="coordinates" id="coordinates-field">
-                    <button type="submit" class="btn btn-primary btn-disabled" id="save-route-btn" style="width:100%; justify-content:center;"><i class='bx bx-cloud-upload'></i>Save Route</button>
-                    <p style="font-size:13px;color:var(--muted);text-align:center;margin-top:8px;" id="form-hint">Add at least two waypoints on the map and provide a route name to enable saving.</p>
-                </form>
             </div>
         </div>
 
-        <div class="panel table-panel">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                <div>
-                    <h2 style="margin:0;">Route Library</h2>
-                    <p style="color:var(--muted); margin:4px 0 0;">Select a saved route to visualize it on the map, or export the list for reporting.</p>
-                </div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <?php if (count($preparedRoutes) === 0): ?>
-                        <a href="?generate_samples=1" class="btn btn-primary" onclick="return confirm('This will create 5 sample routes for testing. Continue?');"><i class='bx bx-plus-circle'></i>Generate Sample Routes</a>
-                    <?php endif; ?>
-                    <button class="btn btn-outline" type="button" id="export-routes"><i class='bx bx-download'></i>Export CSV</button>
-                </div>
-            </div>
-            <table class="routes-table">
-                <thead>
-                    <tr>
-                        <th>Route Name</th>
-                        <th>Zone</th>
-                        <th>Patrol Type</th>
-                        <th>Priority</th>
-                        <th>Status</th>
-                        <th>Length (km)</th>
-                        <th>Waypoints</th>
-                        <th>Created</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($preparedRoutes as $index => $route): ?>
-                        <tr data-route-index="<?php echo $index; ?>">
-                            <td><?php echo htmlspecialchars($route['route_name']); ?></td>
-                            <td><?php echo htmlspecialchars($route['zone']); ?></td>
-                            <td><?php echo htmlspecialchars($route['patrol_type']); ?></td>
-                            <td><span class="badge <?php echo strtolower($route['priority']); ?>"><?php echo htmlspecialchars($route['priority']); ?></span></td>
-                            <td>
-                                <?php
-                                    $statusClass = 'status-planned';
-                                    $statusValue = strtolower($route['status']);
-                                    if ($statusValue === 'active' || $statusValue === 'ongoing') {
-                                        $statusClass = 'status-active';
-                                    } elseif ($statusValue === 'complete') {
-                                        $statusClass = 'status-complete';
-                                    }
-                                ?>
-                                <span class="badge <?php echo $statusClass; ?>"><?php echo htmlspecialchars($route['status']); ?></span>
-                            </td>
-                            <td><?php echo $route['distance']; ?></td>
-                            <td><?php echo $route['points']; ?></td>
-                            <td><?php echo $route['created_at'] ? date('M d, Y', strtotime($route['created_at'])) : '—'; ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-            <?php if (!count($preparedRoutes)): ?>
-                <p style="margin-top:16px; color:var(--muted);">No saved routes yet. Plot waypoints on the map and use the form above to build your first patrol path.</p>
-            <?php endif; ?>
-        </div>
     </div>
 
     <script>
@@ -850,8 +757,8 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
 
             try {
                 map = L.map('route-map', {
-                    center: [14.5995, 120.9842], // Default to Manila, Philippines
-                    zoom: 13,
+                    center: [14.6970, 121.0880],
+                    zoom: 16,
                     zoomControl: true,
                     attributionControl: true
                 });
@@ -864,6 +771,32 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                     zoomOffset: 0,
                     errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
                 }).addTo(map);
+                
+                const pinned = [14.6970, 121.0880];
+                L.marker(pinned).addTo(map);
+                
+                function adjustOverlay() {
+                    const h = window.innerHeight || document.documentElement.clientHeight || 800;
+                    const header = document.querySelector('.page-header');
+                    const stats = document.querySelector('.stats-grid');
+                    const overlay = document.querySelector('.overlay');
+                    const headerRect = header ? header.getBoundingClientRect() : null;
+                    const statsRect = stats ? stats.getBoundingClientRect() : null;
+                    let top = 0;
+                    if (statsRect && typeof statsRect.bottom === 'number') {
+                        top = statsRect.bottom;
+                    } else if (headerRect && typeof headerRect.bottom === 'number') {
+                        top = headerRect.bottom;
+                    }
+                    top = Math.max(0, Math.floor(top) + 12);
+                    if (overlay) {
+                        overlay.style.top = top + 'px';
+                        overlay.style.height = Math.max(360, h - top) + 'px';
+                    }
+                    setTimeout(function(){ map.invalidateSize(); }, 100);
+                }
+                adjustOverlay();
+                window.addEventListener('resize', adjustOverlay);
                 
                 // Ensure map renders properly after initialization
                 setTimeout(() => {
@@ -917,23 +850,28 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
         }
 
         function updateSummary() {
-            waypointList.innerHTML = '';
-            currentPoints.forEach((point, index) => {
-                const li = document.createElement('li');
-                li.textContent = `Waypoint ${index + 1}: ${point[0].toFixed(5)}, ${point[1].toFixed(5)}`;
-                waypointList.appendChild(li);
-            });
-
+            if (waypointList) {
+                waypointList.innerHTML = '';
+                currentPoints.forEach((point, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = `Waypoint ${index + 1}: ${point[0].toFixed(5)}, ${point[1].toFixed(5)}`;
+                    waypointList.appendChild(li);
+                });
+            }
             const totalKm = computeDistance(currentPoints);
-            distanceLabel.textContent = currentPoints.length >= 2
-                ? `${currentPoints.length} waypoints • ${totalKm} km`
-                : 'Select map points to generate a route.';
-
-            hiddenField.value = JSON.stringify(currentPoints);
+            if (distanceLabel) {
+                distanceLabel.textContent = currentPoints.length >= 2
+                    ? `${currentPoints.length} waypoints • ${totalKm} km`
+                    : 'Select map points to generate a route.';
+            }
+            if (hiddenField) {
+                hiddenField.value = JSON.stringify(currentPoints);
+            }
             updateButtonState();
         }
 
         function updateButtonState() {
+            if (!routeNameInput || !saveButton || !formHint) return;
             const hasName = routeNameInput.value.trim().length > 0;
             const hasWaypoints = currentPoints.length >= 2;
             const isValid = hasName && hasWaypoints;
@@ -998,7 +936,7 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             });
             if (currentPolyline) currentPolyline.setLatLngs(currentPoints);
             map.fitBounds(L.latLngBounds(currentPoints), { padding: [20, 20] });
-            if (!routeNameInput.value.trim()) {
+            if (routeNameInput && !routeNameInput.value.trim()) {
                 const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 routeNameInput.value = `Sample Route ${stamp}`;
             }
@@ -1142,14 +1080,18 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             }
         });
 
-        routeNameInput.addEventListener('input', updateButtonState);
+        if (routeNameInput) {
+            routeNameInput.addEventListener('input', updateButtonState);
+        }
 
-        routeForm.addEventListener('submit', (event) => {
-            if (saveButton.classList.contains('btn-disabled')) {
-                event.preventDefault();
-                formHint.textContent = 'Please complete the required fields before saving.';
-            }
-        });
+        if (routeForm) {
+            routeForm.addEventListener('submit', (event) => {
+                if (saveButton && saveButton.classList.contains('btn-disabled')) {
+                    event.preventDefault();
+                    if (formHint) formHint.textContent = 'Please complete the required fields before saving.';
+                }
+            });
+        }
 
         function renderSavedRoute(index) {
             if (!map) return;
@@ -1173,7 +1115,9 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             });
         });
 
-        document.getElementById('export-routes').addEventListener('click', () => {
+        const exportBtn = document.getElementById('export-routes');
+        if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
             if (!preparedRoutes || !preparedRoutes.length) {
                 alert('No data available for export.\n\nPlease:\n• Create routes using the map builder above\n• Or click "Generate Sample Routes" to create test data');
                 return;
@@ -1222,6 +1166,7 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                 alert('Failed to export data. Please try again or contact support if the issue persists.');
             }
         });
+        }
 
             updateSummary();
         } // End of initializeMapApp

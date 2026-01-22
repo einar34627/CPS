@@ -88,7 +88,7 @@ CREATE TABLE `users` (
   `date_of_birth` date NOT NULL,
   `email` varchar(100) NOT NULL,
   `password` varchar(255) NOT NULL,
-  `role` enum('ADMIN','CAPTAIN','TANOD','USER') DEFAULT 'USER',
+  `role` enum('ADMIN','CAPTAIN','TANOD','SECRETARY','USER') DEFAULT 'USER',
   `is_verified` tinyint(1) DEFAULT 0,
   `verification_code` varchar(10) DEFAULT NULL,
   `code_expiry` datetime DEFAULT NULL,

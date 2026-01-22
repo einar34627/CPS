@@ -3,6 +3,242 @@
 session_start();
 require_once '../config/db_connection.php';
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-cache');
+    try {
+        $uid = $_SESSION['user_id'] ?? 0;
+        if (!$uid) { echo json_encode(['success'=>false,'error'=>'Unauthorized']); exit(); }
+        $action = $_POST['action'];
+        if ($action === 'send_message') {
+            $role = strtoupper(trim($_POST['recipient_role'] ?? 'TANOD'));
+            if (!in_array($role, ['TANOD','SECRETARY','CAPTAIN'])) $role = 'TANOD';
+            $msg = trim($_POST['message'] ?? '');
+            if ($msg === '') { echo json_encode(['success'=>false,'error'=>'Message is empty']); exit(); }
+            $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                recipient_role ENUM('TANOD','SECRETARY','CAPTAIN') NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $stmt = $pdo->prepare("INSERT INTO messages (sender_id, recipient_role, message) VALUES (?, ?, ?)");
+            $stmt->execute([$uid, $role, $msg]);
+            echo json_encode(['success'=>true]);
+            exit();
+        } elseif ($action === 'list_messages') {
+            $role = strtoupper(trim($_POST['recipient_role'] ?? 'TANOD'));
+            if (!in_array($role, ['TANOD','SECRETARY','CAPTAIN'])) $role = 'TANOD';
+            $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                recipient_role ENUM('TANOD','SECRETARY','CAPTAIN') NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            $stmt = $pdo->prepare("SELECT id, sender_id, recipient_role, message, created_at FROM messages WHERE sender_id = ? AND recipient_role = ? ORDER BY created_at DESC LIMIT 200");
+            $stmt->execute([$uid, $role]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['success'=>true,'messages'=>$rows]);
+            exit();
+        } elseif ($action === 'user_list') {
+            try {
+                $stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at FROM users ORDER BY created_at DESC LIMIT 500");
+                $stmt->execute([]);
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['success'=>true,'users'=>$rows]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to load users']);
+                exit();
+            }
+        } elseif ($action === 'user_create') {
+            $first = trim($_POST['first_name'] ?? '');
+            $middle = trim($_POST['middle_name'] ?? '');
+            $last = trim($_POST['last_name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $password = $_POST['password'] ?? '';
+            $contact = trim($_POST['contact'] ?? '');
+            $address = trim($_POST['address'] ?? '');
+            $dob = trim($_POST['date_of_birth'] ?? '');
+            $role = strtoupper(trim($_POST['role'] ?? 'TANOD'));
+            if (!in_array($role, ['TANOD','SECRETARY','CAPTAIN'])) $role = 'TANOD';
+            if ($first === '' || $last === '' || $username === '' || $email === '' || $password === '' || $contact === '' || $address === '' || $dob === '') {
+                echo json_encode(['success'=>false,'error'=>'Missing required fields']);
+                exit();
+            }
+            try {
+                $dup = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ? OR username = ?");
+                $dup->execute([$email, $username]);
+                if ((int)$dup->fetchColumn() > 0) { echo json_encode(['success'=>false,'error'=>'Email or username already exists']); exit(); }
+                $hash = password_hash($password, PASSWORD_DEFAULT, ['cost'=>12]);
+                $stmt = $pdo->prepare("INSERT INTO users (first_name, middle_name, last_name, username, contact, address, date_of_birth, email, password, role, is_verified, verification_code, code_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$first, $middle, $last, $username, $contact, $address, $dob, $email, $hash, $role, 1, null, null]);
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to create user']);
+                exit();
+            }
+        } elseif ($action === 'profile_get') {
+            try {
+                $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role, avatar_url FROM users WHERE id = ?");
+                $stmt->execute([$uid]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                echo json_encode(['success'=>true,'profile'=>$row ?: []]);
+                exit();
+            } catch (Exception $e) {
+                try {
+                    $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role FROM users WHERE id = ?");
+                    $stmt->execute([$uid]);
+                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $row = $row ?: [];
+                    $row['avatar_url'] = null;
+                    echo json_encode(['success'=>true,'profile'=>$row]);
+                    exit();
+                } catch (Exception $e2) {
+                    echo json_encode(['success'=>false,'error'=>'Failed to load profile']);
+                    exit();
+                }
+            }
+        } elseif ($action === 'profile_update') {
+            $first = trim($_POST['first_name'] ?? '');
+            $middle = trim($_POST['middle_name'] ?? '');
+            $last = trim($_POST['last_name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $email = trim($_POST['email'] ?? '');
+            $contact = trim($_POST['contact'] ?? '');
+            $address = trim($_POST['address'] ?? '');
+            $dob = trim($_POST['date_of_birth'] ?? '');
+            if ($first === '' || $last === '' || $username === '' || $email === '' || $contact === '' || $address === '' || $dob === '') {
+                echo json_encode(['success'=>false,'error'=>'Missing required fields']);
+                exit();
+            }
+            try {
+                $dup = $pdo->prepare("SELECT COUNT(*) FROM users WHERE (email = ? OR username = ?) AND id <> ?");
+                $dup->execute([$email, $username, $uid]);
+                if ((int)$dup->fetchColumn() > 0) { echo json_encode(['success'=>false,'error'=>'Email or username already exists']); exit(); }
+                $stmt = $pdo->prepare("UPDATE users SET first_name = ?, middle_name = ?, last_name = ?, username = ?, email = ?, contact = ?, address = ?, date_of_birth = ? WHERE id = ?");
+                $stmt->execute([$first, $middle, $last, $username, $email, $contact, $address, $dob, $uid]);
+                $_SESSION['user_email'] = $email;
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update profile']);
+                exit();
+            }
+        } elseif ($action === 'profile_avatar_upload') {
+            if (!isset($_FILES['avatar'])) { echo json_encode(['success'=>false,'error'=>'No file uploaded']); exit(); }
+            $file = $_FILES['avatar'];
+            if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) { echo json_encode(['success'=>false,'error'=>'Upload failed']); exit(); }
+            $type = mime_content_type($file['tmp_name']);
+            $allowed = ['image/jpeg','image/png','image/webp'];
+            if (!in_array($type, $allowed, true)) { echo json_encode(['success'=>false,'error'=>'Invalid image type']); exit(); }
+            $size = filesize($file['tmp_name']);
+            if ($size > 5 * 1024 * 1024) { echo json_encode(['success'=>false,'error'=>'Image too large']); exit(); }
+            $ext = 'jpg';
+            if ($type === 'image/png') $ext = 'png';
+            if ($type === 'image/webp') $ext = 'webp';
+            $root = dirname(__DIR__);
+            $dir = $root . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'avatars';
+            if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+            $name = 'u'.$uid.'_'.bin2hex(random_bytes(6)).'.'.$ext;
+            $dest = $dir . DIRECTORY_SEPARATOR . $name;
+            if (!move_uploaded_file($file['tmp_name'], $dest)) { echo json_encode(['success'=>false,'error'=>'Failed to save image']); exit(); }
+            try {
+                $pdo->exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(255) DEFAULT NULL");
+            } catch (Exception $e) {}
+            $relative = 'uploads/avatars/'.$name;
+            try {
+                $stmt = $pdo->prepare("UPDATE users SET avatar_url = ? WHERE id = ?");
+                $stmt->execute([$relative, $uid]);
+                echo json_encode(['success'=>true,'avatar_url'=>$relative]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update avatar']);
+                exit();
+            }
+        } elseif ($action === 'security_generate_key') {
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, api_key_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                $raw = 'sk_' . bin2hex(random_bytes(16));
+                $hash = password_hash($raw, PASSWORD_DEFAULT, ['cost'=>12]);
+                $stmt = $pdo->prepare("INSERT INTO api_keys (user_id, api_key_hash) VALUES (?, ?)");
+                $stmt->execute([$uid, $hash]);
+                echo json_encode(['success'=>true,'api_key'=>$raw]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to generate key']);
+                exit();
+            }
+        } elseif ($action === 'security_toggle_2fa') {
+            $enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1' ? 1 : 0;
+            try {
+                try { $pdo->exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled TINYINT(1) DEFAULT 0"); } catch (Exception $e) {}
+                $stmt = $pdo->prepare("UPDATE users SET two_factor_enabled = ? WHERE id = ?");
+                $stmt->execute([$enabled, $uid]);
+                echo json_encode(['success'=>true,'enabled'=>$enabled]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update 2FA']);
+                exit();
+            }
+        } elseif ($action === 'security_change_password') {
+            $current = $_POST['current_password'] ?? '';
+            $new = $_POST['new_password'] ?? '';
+            if ($current === '' || $new === '') { echo json_encode(['success'=>false,'error'=>'Missing fields']); exit(); }
+            try {
+                $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
+                $stmt->execute([$uid]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row || !password_verify($current, $row['password'])) { echo json_encode(['success'=>false,'error'=>'Incorrect current password']); exit(); }
+                $hash = password_hash($new, PASSWORD_DEFAULT, ['cost'=>12]);
+                $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
+                $stmt->execute([$hash, $uid]);
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to change password']);
+                exit();
+            }
+        } elseif ($action === 'security_change_email') {
+            $newEmail = trim($_POST['new_email'] ?? '');
+            if ($newEmail === '') { echo json_encode(['success'=>false,'error'=>'Missing email']); exit(); }
+            try {
+                $dup = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ? AND id <> ?");
+                $dup->execute([$newEmail, $uid]);
+                if ((int)$dup->fetchColumn() > 0) { echo json_encode(['success'=>false,'error'=>'Email already exists']); exit(); }
+                $stmt = $pdo->prepare("UPDATE users SET email = ? WHERE id = ?");
+                $stmt->execute([$newEmail, $uid]);
+                $_SESSION['user_email'] = $newEmail;
+                echo json_encode(['success'=>true,'email'=>$newEmail]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to change email']);
+                exit();
+            }
+        } elseif ($action === 'security_delete_account') {
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, api_key_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                $stmt = $pdo->prepare("DELETE FROM api_keys WHERE user_id = ?");
+                $stmt->execute([$uid]);
+                $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                $stmt->execute([$uid]);
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to delete account']);
+                exit();
+            }
+        }
+        echo json_encode(['success'=>false,'error'=>'Unknown action']);
+        exit();
+    } catch (Exception $e) {
+        echo json_encode(['success'=>false,'error'=>'Server error']);
+        exit();
+    }
+}
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
@@ -11,16 +247,26 @@ if (!isset($_SESSION['user_id'])) {
 
 
 $user_id = $_SESSION['user_id'];
-$query = "SELECT first_name, middle_name, last_name, role FROM users WHERE id = ?";
-$stmt = $pdo->prepare($query);
-$stmt->execute([$user_id]);
-$user = $stmt->fetch();
+$query = "SELECT first_name, middle_name, last_name, role, avatar_url, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
+try {
+    $stmt = $pdo->prepare($query);
+    $stmt->execute([$user_id]);
+    $user = $stmt->fetch();
+} catch (Exception $e) {
+    $fallbackQuery = "SELECT first_name, middle_name, last_name, role, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
+    $stmt = $pdo->prepare($fallbackQuery);
+    $stmt->execute([$user_id]);
+    $user = $stmt->fetch();
+    if (is_array($user)) { $user['avatar_url'] = null; }
+}
 
 if ($user) {
     $first_name = htmlspecialchars($user['first_name']);
     $middle_name = htmlspecialchars($user['middle_name']);
     $last_name = htmlspecialchars($user['last_name']);
     $role = htmlspecialchars($user['role']);
+    $avatar_url = isset($user['avatar_url']) ? $user['avatar_url'] : null;
+    $avatar_path = $avatar_url ? '../'.$avatar_url : 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
     
     $full_name = $first_name;
     if (!empty($middle_name)) {
@@ -31,6 +277,7 @@ if ($user) {
 
     $full_name = "User";
     $role = "USER";
+    $avatar_path = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
 }
 
 $stmt = null;
@@ -204,7 +451,6 @@ $stmt = null;
                 <span class="logo-text">Community Policing and Surveillance</span>
             </div>
             
-<<<<<<< HEAD
           <!-- Menu Section -->
 <div class="menu-section">
     <p class="menu-title">COMMUNITY POLICING AND SURVEILLANCE</p>
@@ -287,8 +533,8 @@ $stmt = null;
             </svg>
         </div>
         <div id="training" class="submenu">
-            <a href="#" class="submenu-item">Route Mapping</a>
-            <a href="#" class="submenu-item">GPS Tracking</a>
+            <a href="#" class="submenu-item">Route Monitoring</a>
+            <a href="#" class="submenu-item" id="gps-tracking-link" data-target="gps-tracking-section">GPS Tracking</a>
             <a href="#" class="submenu-item">Summary Reports</a>
         </div>
         
@@ -319,8 +565,13 @@ $stmt = null;
         <div id="postincident" class="submenu">
             <a href="#" class="submenu-item">Tip Portal</a>
             <a href="#" class="submenu-item">Message Encryption</a>
-            <a href="#" class="submenu-item">Verification</a>
         </div>
+        <a href="#" class="menu-item" id="user-menu">
+            <div class="icon-box icon-bg-purple">
+                <i class='bx bxs-user icon-purple'></i>
+            </div>
+            <span class="font-medium">User</span>
+        </a>
     </div>
     
     <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
@@ -352,187 +603,6 @@ $stmt = null;
         </a>
     </div>
 </div>
-=======
-            <!-- Menu Section -->
-            <div class="menu-section">
-                <p class="menu-title">FIRE & RESCUE MANAGEMENT</p>
-                
-                <div class="menu-items">
-                    <a href="#" class="menu-item active" id="dashboard-menu">
-                        <div class="icon-box icon-bg-red">
-                            <i class='bx bxs-dashboard icon-red'></i>
-                        </div>
-                        <span class="font-medium">Dashboard</span>
-                    </a>
-                    
-                    <!-- User Management -->
-                    <div class="menu-item" onclick="toggleSubmenu('user-management')">
-                        <div class="icon-box icon-bg-orange">
-                            <i class='bx bxs-user icon-orange'></i>
-                        </div>
-                        <span class="font-medium">User Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="user-management" class="submenu">
-                        <a href="#" class="submenu-item">Manage Users</a>
-                        <a href="#" class="submenu-item">Role Control</a>
-                        <a href="#" class="submenu-item">Monitor Activity</a>
-                        <a href="#" class="submenu-item">Reset Passwords</a>
-                    </div>
-                    
-                    <!-- Fire & Incident Reporting Management -->
-                    <div class="menu-item" onclick="toggleSubmenu('incident-management')">
-                        <div class="icon-box icon-bg-yellow">
-                            <i class='bx bxs-alarm-exclamation icon-yellow'></i>
-                        </div>
-                        <span class="font-medium">Incident Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="incident-management" class="submenu">
-                        <a href="#" class="submenu-item">View Reports</a>
-                        <a href="#" class="submenu-item">Validate Data</a>
-                        <a href="#" class="submenu-item">Assign Severity</a>
-                        <a href="#" class="submenu-item">Track Progress</a>
-                        <a href="#" class="submenu-item">Mark Resolved</a>
-                    </div>
-                    
-                    <!-- Barangay Volunteer Roster Management -->
-                    <div class="menu-item" onclick="toggleSubmenu('volunteer-management')">
-                        <div class="icon-box icon-bg-blue">
-                            <i class='bx bxs-user-detail icon-blue'></i>
-                        </div>
-                        <span class="font-medium">Volunteer Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="volunteer-management" class="submenu">
-                        <a href="vm/review_data.php" class="submenu-item">Review Data</a>
-                        <a href="#" class="submenu-item">Approve Applications</a>
-                        <a href="#" class="submenu-item">Assign Volunteers</a>
-                        <a href="#" class="submenu-item">View Availability</a>
-                        <a href="#" class="submenu-item">Remove Volunteers</a>
-                        <a href="vm/toggle_volunteer_registration.php" class="submenu-item">Toggle Volunteer Registration Access</a>
-                    </div>
-                    
-                    <!-- Resource Inventory Management -->
-                    <div class="menu-item" onclick="toggleSubmenu('resource-management')">
-                        <div class="icon-box icon-bg-green">
-                            <i class='bx bxs-cube icon-green'></i>
-                        </div>
-                        <span class="font-medium">Resource Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="resource-management" class="submenu">
-                        <a href="#" class="submenu-item">View Equipment</a>
-                        <a href="#" class="submenu-item">Approve Maintenance</a>
-                        <a href="#" class="submenu-item">Approve Resources</a>
-                        <a href="#" class="submenu-item">Review Deployment</a>
-                    </div>
-                    
-                    <!-- Shift & Duty Scheduling -->
-                    <div class="menu-item" onclick="toggleSubmenu('schedule-management')">
-                        <div class="icon-box icon-bg-purple">
-                            <i class='bx bxs-calendar icon-purple'></i>
-                        </div>
-                        <span class="font-medium">Schedule Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="schedule-management" class="submenu">
-                        <a href="#" class="submenu-item">Create Schedule</a>
-                        <a href="#" class="submenu-item">Approve Shifts</a>
-                        <a href="#" class="submenu-item">Override Assignments</a>
-                        <a href="#" class="submenu-item">Monitor Attendance</a>
-                    </div>
-                    
-                    <!-- Training & Certification Monitoring -->
-                    <div class="menu-item" onclick="toggleSubmenu('training-management')">
-                        <div class="icon-box icon-bg-teal">
-                            <i class='bx bxs-graduation icon-teal'></i>
-                        </div>
-                        <span class="font-medium">Training Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="training-management" class="submenu">
-                        <a href="#" class="submenu-item">View Records</a>
-                        <a href="#" class="submenu-item">Approve Completions</a>
-                        <a href="#" class="submenu-item">Assign Training</a>
-                        <a href="#" class="submenu-item">Track Expiry</a>
-                    </div>
-                    
-                    <!-- Inspection Logs for Establishments -->
-                    <div class="menu-item" onclick="toggleSubmenu('inspection-management')">
-                        <div class="icon-box icon-bg-cyan">
-                            <i class='bx bxs-check-shield icon-cyan'></i>
-                        </div>
-                        <span class="font-medium">Inspection Management</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="inspection-management" class="submenu">
-                        <a href="#" class="submenu-item">Approve Reports</a>
-                        <a href="#" class="submenu-item">Review Violations</a>
-                        <a href="#" class="submenu-item">Issue Certificates</a>
-                        <a href="#" class="submenu-item">Track Follow-Up</a>
-                    </div>
-                    
-                    <!-- Post-Incident Reporting & Analytics -->
-                    <div class="menu-item" onclick="toggleSubmenu('analytics-management')">
-                        <div class="icon-box icon-bg-pink">
-                            <i class='bx bxs-file-doc icon-pink'></i>
-                        </div>
-                        <span class="font-medium">Analytics & Reports</span>
-                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </div>
-                    <div id="analytics-management" class="submenu">
-                        <a href="#" class="submenu-item">Review Summaries</a>
-                        <a href="#" class="submenu-item">Analyze Data</a>
-                        <a href="#" class="submenu-item">Export Reports</a>
-                        <a href="#" class="submenu-item">Generate Statistics</a>
-                    </div>
-                    
-                   
-                </div>
-                
-                <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
-                
-                <div class="menu-items">
-                    <a href="#" class="menu-item">
-                        <div class="icon-box icon-bg-teal">
-                            <i class='bx bxs-cog icon-teal'></i>
-                        </div>
-                        <span class="font-medium">Settings</span>
-                    </a>
-                    
-                    <a href="../profile.php" class="menu-item">
-                        <div class="icon-box icon-bg-orange">
-                            <i class='bx bxs-user icon-orange'></i>
-                        </div>
-                        <span class="font-medium">Profile</span>
-                    </a>
-                    
-                    <a href="../includes/logout.php" class="menu-item">
-                        <div class="icon-box icon-bg-red">
-                            <i class='bx bx-log-out icon-red'></i>
-                        </div>
-                        <span class="font-medium">Logout</span>
-                    </a>
-                </div>
-            </div>
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
         </div>
         
         <!-- Main Content -->
@@ -579,7 +649,7 @@ $stmt = null;
                             </div>
                         </div>
                         <div class="user-profile">
-                             <img src="../img/rei.jfif" alt="User" class="user-avatar">
+                             <img src="<?php echo htmlspecialchars($avatar_path); ?>" alt="User" class="user-avatar">
                             <div class="user-info">
                                 <p class="user-name"><?php echo $full_name; ?></p>
                                 <p class="user-email"><?php echo $role; ?></p>
@@ -589,20 +659,11 @@ $stmt = null;
                 </div>
             </div>
             
-<<<<<<< HEAD
             <div class="dashboard-content content-section" id="home-section">
                 <div class="dashboard-header">
                     <div>
                         <h1 class="dashboard-title">Community & Surveillance Dashboard</h1>
                         <p class="dashboard-subtitle">Monitor, manage, and coordinate community & surveillance operations.</p>
-=======
-            <!-- Dashboard Content -->
-            <div class="dashboard-content">
-                <div class="dashboard-header">
-                    <div>
-                        <h1 class="dashboard-title">Administrative Dashboard</h1>
-                        <p class="dashboard-subtitle">Oversee, approve, configure, and analyze the system.</p>
->>>>>>> 2d4df041c7a7f7ce738cd38352724fc924273484
                     </div>
                     <div class="dashboard-actions">
                         <a href="Summary%20Report.php" class="primary-button" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
@@ -1518,7 +1579,6 @@ $stmt = null;
                 <div class="assign-card">
                     <div class="registry-header">
                         <div class="registry-title">Route Mapping</div>
-                        <button class="secondary-button" id="route-back">Back to Dashboard</button>
                     </div>
                     <iframe id="route-mapping-frame" src="Route%20Mapping.php" title="Route Mapping" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
                 </div>
@@ -1529,7 +1589,122 @@ $stmt = null;
                         <div class="registry-title">GPS Tracking</div>
                         <button class="secondary-button" id="gps-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="gps-tracking-frame" src="GPS%20Tracking.php" title="GPS Tracking" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <div class="stats-grid" style="margin-top:16px;">
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Total Units</span>
+                            </div>
+                            <div class="stat-value" id="kpi-total-units">0</div>
+                            <div class="stat-info"><span>Active tracking</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Active Units</span>
+                            </div>
+                            <div class="stat-value" id="kpi-active-units">0</div>
+                            <div class="stat-info"><span>On patrol / responding</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Offline Units</span>
+                            </div>
+                            <div class="stat-value" id="kpi-offline-units">0</div>
+                            <div class="stat-info"><span>Inactive devices</span></div>
+                        </div>
+                    </div>
+                    <div style="margin-top:16px;display:grid;grid-template-columns:280px 1fr 360px;gap:16px;align-items:start;">
+                        <div class="card">
+                            <h2 class="card-title">Unit Status</h2>
+                            <div style="margin-top:8px;display:grid;grid-template-columns:1fr;gap:8px;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span>On Patrol</span>
+                                    <span class="badge badge-active" id="count-on-patrol">0</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span>Responding</span>
+                                    <span class="badge badge-active" id="count-responding">0</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span>Stationary</span>
+                                    <span class="badge badge-inactive" id="count-stationary">0</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span>Needs Assistance</span>
+                                    <span class="badge badge-pending" id="count-alerts">0</span>
+                                </div>
+                            </div>
+                            <h3 class="card-title" style="margin-top:16px;">Monitoring Units</h3>
+                            <div id="unit-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:380px;overflow:auto;"></div>
+                        </div>
+                        <div>
+                            <div class="card">
+                                <h2 class="card-title">Map</h2>
+                                <div style="margin-top:8px;">
+                                    <iframe id="gps-map-embed" src="https://maps.google.com/maps?q=14.6970,121.0880&z=16&output=embed" title="Map - Barangay Location" scrolling="no" style="width:100%;min-height:560px;border:0;border-radius:12px;background:transparent;"></iframe>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2 class="card-title">Unit Information</h2>
+                            <div id="unit-info-panel" style="margin-top:8px;line-height:1.6;">
+                                <div><strong id="ui-name">—</strong> <span class="badge badge-inactive" id="ui-status">—</span></div>
+                                <div style="color:#6b7280;">Assignment: <span id="ui-assignment">—</span></div>
+                                <div>Location: <span id="ui-location">—</span></div>
+                                <div>Speed: <span id="ui-speed">—</span></div>
+                                <div>Battery: <span id="ui-battery">—</span></div>
+                                <div>Distance Today: <span id="ui-distance">—</span></div>
+                                <div>Last Update: <span id="ui-last">—</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-top:16px;">
+                        <h2 class="card-title">Create Patrol Unit</h2>
+                        <form id="create-unit-form" style="margin-top:12px;">
+                            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Unit ID</label>
+                                    <input type="text" class="input-text" id="unit-id-input" placeholder="UNIT-001" required>
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Callsign</label>
+                                    <input type="text" class="input-text" id="callsign-input" placeholder="Alpha One" required>
+                                </div>
+                                <div class="full-width" style="grid-column:1 / -1;">
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Assignment Area</label>
+                                    <input type="text" class="input-text" id="assignment-input" placeholder="e.g., Zone 1 - Main Road" required>
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Unit Type</label>
+                                    <select class="input-text" id="unit-type-input" required>
+                                        <option value="Mobile Patrol">Mobile Patrol</option>
+                                        <option value="Ronda">Ronda</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Status</label>
+                                    <select class="input-text" id="status-input">
+                                        <option value="On Patrol">On Patrol</option>
+                                        <option value="Responding">Responding</option>
+                                        <option value="Stationary">Stationary</option>
+                                        <option value="Needs Assistance">Needs Assistance</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Latitude</label>
+                                    <input type="number" step="0.000001" class="input-text" id="latitude-input" value="14.697000" required>
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Longitude</label>
+                                    <input type="number" step="0.000001" class="input-text" id="longitude-input" value="121.088000" required>
+                                </div>
+                            </div>
+                            <div style="margin-top:12px;display:flex;gap:8px;">
+                                <button type="submit" class="primary-button">Create Unit</button>
+                                <button type="button" class="secondary-button" id="clear-unit-form-btn">Clear</button>
+                            </div>
+                            <div id="create-unit-message" style="margin-top:10px;font-weight:500;"></div>
+                        </form>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="summary-report-section">
@@ -1538,7 +1713,55 @@ $stmt = null;
                         <div class="registry-title">Summary Reports</div>
                         <button class="secondary-button" id="summary-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="summary-report-frame" src="Summary%20Report.php" title="Summary Reports" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <div class="card">
+                        <h2 class="card-title">Tanod Duty Reports</h2>
+                        <p style="margin-top:8px;line-height:1.6;">Reports submitted after duty in assigned areas.</p>
+                        <div style="overflow-x:auto;margin-top:8px;">
+                            <table style="width:100%;border-collapse:collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Date/Time</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Area/Location</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Category</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Report Summary</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($observations)): ?>
+                                        <?php foreach ($observations as $o): ?>
+                                            <?php
+                                                $dt = !empty($o['observed_at']) ? date('M d, Y H:i', strtotime($o['observed_at'])) : '—';
+                                                $loc = htmlspecialchars($o['location'] ?? '—');
+                                                $cat = htmlspecialchars($o['category'] ?? 'General');
+                                                $descShort = htmlspecialchars(mb_strimwidth($o['description'] ?? '—', 0, 140, '…'));
+                                                $statusLabel = htmlspecialchars($o['status'] ?? 'Submitted');
+                                            ?>
+                                            <tr>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo $dt; ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo $loc; ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo $cat; ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo $descShort; ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;">
+                                                    <?php if (strtolower($statusLabel) === 'resolved'): ?>
+                                                        <span class="badge badge-resolved">Resolved</span>
+                                                    <?php elseif (strtolower($statusLabel) === 'pending'): ?>
+                                                        <span class="badge badge-pending">Pending</span>
+                                                    <?php else: ?>
+                                                        <span class="badge badge-inactive"><?php echo $statusLabel; ?></span>
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="5" style="padding:14px;">No duty reports logged yet.</td>
+                                        </tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="registration-system-section">
@@ -1568,20 +1791,238 @@ $stmt = null;
                     <iframe id="feedback-frame" src="Feedback.php" title="Feedback" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
                 </div>
             </div>
-            <div class="content-section" id="settings-profile-section">
-                <div class="settings-card">
-                    <div class="settings-title">Profile</div>
-                    <div class="settings-list">
-                        <div class="settings-item">
-                            <div class="settings-item-left">
-                                <div class="settings-item-icon"><i class='bx bxs-user'></i></div>
+            <div class="content-section" id="tip-portal-section" style="display:none;">
+                <div class="assign-card">
+                    <div class="registry-header">
+                        <div class="registry-title">Anonymous Feedback & Tip Line</div>
+                        <button class="secondary-button" id="tip-portal-back">Back to Dashboard</button>
+                    </div>
+                    <div class="card">
+                        <h2 class="card-title">Submitted Tips</h2>
+                        <div style="overflow-x:auto;margin-top:8px;">
+                            <table style="width:100%;border-collapse:collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Date</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Title</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Category</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Priority</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Location</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Anonymous</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php
+                                        $tips = [];
+                                        try {
+                                            $pdo->exec("CREATE TABLE IF NOT EXISTS tips (
+                                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                                title VARCHAR(255) NOT NULL,
+                                                description TEXT NOT NULL,
+                                                category VARCHAR(100) DEFAULT 'Other',
+                                                priority VARCHAR(20) DEFAULT 'Medium',
+                                                status VARCHAR(30) DEFAULT 'pending',
+                                                location VARCHAR(255) DEFAULT NULL,
+                                                contact_info VARCHAR(255) DEFAULT NULL,
+                                                is_anonymous TINYINT(1) DEFAULT 0,
+                                                submitted_by INT,
+                                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                                            $stmt = $pdo->query("SELECT id, title, category, priority, status, location, is_anonymous, created_at FROM tips ORDER BY created_at DESC LIMIT 200");
+                                            $tips = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                        } catch (Exception $e) { $tips = []; }
+                                    ?>
+                                    <?php if (!empty($tips)): ?>
+                                        <?php foreach ($tips as $t): ?>
+                                            <tr>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo date('M d, Y H:i', strtotime($t['created_at'] ?? 'now')); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($t['title'] ?? ''); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($t['category'] ?? 'Other'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($t['priority'] ?? 'Medium'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($t['location'] ?? '—'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo (intval($t['is_anonymous'] ?? 0) ? 'Yes' : 'No'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($t['status'] ?? 'pending'); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr><td colspan="7" style="padding:14px;">No tips submitted yet.</td></tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="content-section" id="message-encryption-section" style="display:none;">
+                <div class="dashboard-header">
+                    <div>
+                        <h1 class="dashboard-title">Messages</h1>
+                        <p class="dashboard-subtitle">Chat with Tanod, Secretary, and Captain.</p>
+                    </div>
+                    <div class="dashboard-actions">
+                        <button class="secondary-button" id="message-encryption-back">Back to Dashboard</button>
+                    </div>
+                </div>
+                <div class="main-grid" style="grid-template-columns: 320px 1fr;">
+                    <div class="left-column">
+                        <div class="card" style="height:100%;">
+                            <h2 class="card-title">Contacts</h2>
+                            <div style="padding:12px;">
+                                <input id="admin-msg-contact-search" class="modal-input" type="text" placeholder="Search contacts...">
+                            </div>
+                            <div id="admin-msg-contact-list" style="padding:0 12px 12px 12px;max-height:520px;overflow-y:auto;"></div>
+                        </div>
+                    </div>
+                    <div class="right-column">
+                        <div class="card" style="height:100%;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0 12px;">
                                 <div>
-                                    <div class="settings-item-title">Display Name</div>
-                                    <div class="settings-item-desc"><?php echo $full_name; ?></div>
+                                    <h2 class="card-title" id="admin-msg-chat-title">Tanod</h2>
+                                    <div id="admin-msg-chat-status" style="font-size:14px;color:#10b981;">Online</div>
+                                </div>
+                                <div style="display:flex;gap:10px;color:#6b7280;">
+                                    <span>🗨️</span><span>📞</span><span>⋯</span>
                                 </div>
                             </div>
-                            <button class="secondary-button" id="profile-edit-btn">Edit</button>
+                            <div id="admin-msg-chat" style="padding:12px;max-height:420px;overflow-y:auto;background:#f9fafb;border-radius:8px;margin:12px;"></div>
+                            <div style="display:flex;gap:8px;padding:12px;">
+                                <input id="admin-msg-input" class="modal-input" type="text" placeholder="Type a message...">
+                                <button class="primary-button" id="admin-msg-send-btn" style="min-width:80px;">Send</button>
+                            </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="content-section" id="user-management-section" style="display:none;">
+                <div class="assign-card">
+                    <div class="registry-header">
+                        <div class="registry-title">User Management</div>
+                        <div>
+                            <button class="secondary-button" id="user-create-open-btn">Create Account</button>
+                            <button class="secondary-button" id="user-back-btn">Back to Dashboard</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2 class="card-title">Registered Accounts</h2>
+                        <div style="padding:12px;">
+                            <input id="user-search" class="modal-input" type="text" placeholder="Search by name, email, or role">
+                        </div>
+                        <div id="user-role-filters" style="display:flex;gap:8px;padding:0 12px 12px 12px;flex-wrap:wrap;">
+                            <button type="button" class="secondary-button user-role-filter active" data-role="ALL">All</button>
+                            <button type="button" class="secondary-button user-role-filter" data-role="TANOD">Tanod</button>
+                            <button type="button" class="secondary-button user-role-filter" data-role="SECRETARY">Secretary</button>
+                            <button type="button" class="secondary-button user-role-filter" data-role="CAPTAIN">Captain</button>
+                            <button type="button" class="secondary-button user-role-filter" data-role="ADMIN">Admin</button>
+                            <button type="button" class="secondary-button user-role-filter" data-role="USER">User</button>
+                        </div>
+                        <div style="overflow-x:auto;margin-top:8px;">
+                            <table style="width:100%;border-collapse:collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Name</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Username / Email</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Role</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Verified</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Created</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-tbody">
+                                    <?php
+                                        $users = [];
+                                        try {
+                                            $stmtU = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at FROM users ORDER BY created_at DESC LIMIT 200");
+                                            $stmtU->execute([]);
+                                            $users = $stmtU->fetchAll(PDO::FETCH_ASSOC);
+                                        } catch (Exception $e) { $users = []; }
+                                    ?>
+                                    <?php if (!empty($users)): ?>
+                                        <?php foreach ($users as $u): ?>
+                                            <tr>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(trim(($u['first_name']??'').' '.($u['middle_name']??'').' '.($u['last_name']??''))); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(($u['username']??'').' • '.($u['email']??'')); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($u['role'] ?? 'USER'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo (intval($u['is_verified'] ?? 0) ? '<span class="badge badge-active">Yes</span>' : '<span class="badge badge-pending">No</span>'); ?></td>
+                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(date('M d, Y g:i A', strtotime($u['created_at'] ?? 'now'))); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr><td colspan="5" style="padding:14px;">No users found.</td></tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    #user-create-modal .modal-input { font-size:16px; padding:12px 12px; }
+                    #user-create-modal input::placeholder { font-size:16px; opacity:.8; }
+                    #user-create-modal select.modal-input { font-size:16px; }
+                </style>
+                <div id="user-create-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                    <div style="background:#fff;width:640px;max-width:90%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                            <div style="font-weight:600;">Create Account</div>
+                            <button class="secondary-button" id="user-create-close">Close</button>
+                        </div>
+                        <form id="user-create-form" style="padding:16px;">
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <input class="modal-input" type="text" name="first_name" placeholder="First name" required>
+                                <input class="modal-input" type="text" name="middle_name" placeholder="Middle name">
+                                <input class="modal-input" type="text" name="last_name" placeholder="Last name" required>
+                                <input class="modal-input" type="text" name="username" placeholder="Username" required>
+                                <input class="modal-input" type="email" name="email" placeholder="Email" required>
+                                <input class="modal-input" type="password" name="password" placeholder="Password" required>
+                                <input class="modal-input" type="text" name="contact" placeholder="Contact" required>
+                                <input class="modal-input" type="date" name="date_of_birth" placeholder="Date of birth" required>
+                                <select class="modal-input" name="role" required>
+                                    <option value="TANOD">Tanod</option>
+                                    <option value="SECRETARY">Secretary</option>
+                                    <option value="CAPTAIN">Captain</option>
+                                </select>
+                                <input class="modal-input" type="text" name="address" placeholder="Address" required style="grid-column:1 / span 2;">
+                            </div>
+                            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+                                <button type="button" class="secondary-button" id="user-create-cancel">Cancel</button>
+                                <button type="submit" class="primary-button" id="user-create-submit">Create</button>
+                            </div>
+                            <div id="user-create-status" style="margin-top:8px;font-weight:500;"></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="content-section" id="settings-profile-section">
+                <div class="settings-card">
+                    <div class="settings-nav">
+                        <span class="settings-tab active" id="settings-tab-profile">Profile</span>
+                        <span class="settings-tab" id="settings-tab-security">Security</span>
+                    </div>
+                    <div class="settings-title">Profile</div>
+                    <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+                            <img id="profile-avatar-preview" src="<?php echo htmlspecialchars($avatar_path); ?>" alt="Avatar" style="width:96px;height:96px;border-radius:50%;object-fit:cover;">
+                            <div style="display:flex;gap:8px;">
+                                <input type="file" id="profile-avatar-input" accept="image/*">
+                                <button class="secondary-button" id="profile-avatar-upload-btn">Upload</button>
+                            </div>
+                            <div id="avatar-status" style="font-weight:500;"></div>
+                        </div>
+                        <form id="profile-form" style="flex:1;min-width:320px;max-width:640px;">
+                            <div style="display:grid;grid-template-columns:1fr;gap:12px;">
+                                <input class="modal-input" type="text" name="first_name" placeholder="First name">
+                                <input class="modal-input" type="text" name="middle_name" placeholder="Middle name">
+                                <input class="modal-input" type="text" name="last_name" placeholder="Last name">
+                                <input class="modal-input" type="text" name="username" placeholder="Username">
+                                <input class="modal-input" type="email" name="email" placeholder="Email">
+                                <input class="modal-input" type="text" name="contact" placeholder="Contact">
+                                <input class="modal-input" type="date" name="date_of_birth" placeholder="Date of birth">
+                                <input class="modal-input" type="text" name="address" placeholder="Address">
+                            </div>
+                            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+                                <button type="submit" class="primary-button" id="profile-save-btn">Save Changes</button>
+                            </div>
+                            <div id="profile-status" style="margin-top:8px;font-weight:500;"></div>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -1590,7 +2031,6 @@ $stmt = null;
                     <div class="settings-nav">
                         <span class="settings-tab">Profile</span>
                         <span class="settings-tab active">Security</span>
-                        <span class="settings-tab">Admin Tools</span>
                     </div>
                     <div class="settings-title">Security</div>
                     <div class="settings-list">
@@ -1703,6 +2143,9 @@ $stmt = null;
                     document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
                     const el = document.getElementById(target);
                     if (el) el.style.display = 'block';
+                    if (target === 'gps-tracking-section') {
+                        if (typeof loadGPSUnits === 'function') loadGPSUnits();
+                    }
                 }
             });
         });
@@ -1733,6 +2176,16 @@ $stmt = null;
             settingsButton.addEventListener('click', function(e){
                 e.preventDefault();
                 e.stopPropagation();
+                const isOpen = settingsDropdown.classList.contains('active');
+                if (isOpen) {
+                    settingsDropdown.classList.remove('active');
+                    settingsContainer.classList.remove('open');
+                    settingsButton.setAttribute('aria-expanded','false');
+                } else {
+                    settingsDropdown.classList.add('active');
+                    settingsContainer.classList.add('open');
+                    settingsButton.setAttribute('aria-expanded','true');
+                }
             });
             document.addEventListener('click', function(e){
                 if (!settingsContainer.contains(e.target)) {
@@ -1845,6 +2298,237 @@ $stmt = null;
                 document.getElementById('home-section').style.display = 'block';
             });
         }
+        const userMenu = document.getElementById('user-menu');
+        if (userMenu) {
+            userMenu.addEventListener('click', function(e){
+                e.preventDefault();
+                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                const el = document.getElementById('user-management-section');
+                if (el) el.style.display = 'block';
+                if (typeof loadUsers === 'function') loadUsers();
+            });
+        }
+        const settingsProfileBtn = document.getElementById('settings-profile-btn');
+        const settingsSecurityBtn = document.getElementById('settings-security-btn');
+        const sidebarSettingsProfileLink = document.getElementById('sidebar-settings-profile-link');
+        const sidebarSettingsSecurityLink = document.getElementById('sidebar-settings-security-link');
+        function showSection(id){ document.querySelectorAll('.content-section').forEach(s => { s.style.display='none'; }); const el=document.getElementById(id); if (el) el.style.display='block'; }
+        if (settingsProfileBtn) settingsProfileBtn.addEventListener('click', function(){ showSection('settings-profile-section'); if (settingsDropdown) settingsDropdown.classList.remove('active'); loadProfile(); });
+        if (settingsSecurityBtn) settingsSecurityBtn.addEventListener('click', function(){ showSection('settings-security-section'); if (settingsDropdown) settingsDropdown.classList.remove('active'); });
+        if (sidebarSettingsProfileLink) sidebarSettingsProfileLink.addEventListener('click', function(e){ e.preventDefault(); showSection('settings-profile-section'); loadProfile(); });
+        if (sidebarSettingsSecurityLink) sidebarSettingsSecurityLink.addEventListener('click', function(e){ e.preventDefault(); showSection('settings-security-section'); });
+        const settingsTabProfile = document.getElementById('settings-tab-profile');
+        const settingsTabSecurity = document.getElementById('settings-tab-security');
+        if (settingsTabProfile) settingsTabProfile.addEventListener('click', function(){ showSection('settings-profile-section'); loadProfile(); });
+        if (settingsTabSecurity) settingsTabSecurity.addEventListener('click', function(){ showSection('settings-security-section'); });
+        const profileForm = document.getElementById('profile-form');
+        const profileStatus = document.getElementById('profile-status');
+        const avatarInput = document.getElementById('profile-avatar-input');
+        const avatarUploadBtn = document.getElementById('profile-avatar-upload-btn');
+        const avatarStatus = document.getElementById('avatar-status');
+        const avatarPreview = document.getElementById('profile-avatar-preview');
+        const headerAvatar = document.querySelector('.user-avatar');
+        const profileInputsStyle = document.createElement('style');
+        profileInputsStyle.textContent = '#profile-form .modal-input{font-size:18px;padding:14px 12px;}#profile-form input::placeholder{font-size:18px;opacity:.8;}';
+        document.head.appendChild(profileInputsStyle);
+        async function loadProfile(){
+            try{
+                const fd = new FormData();
+                fd.append('action','profile_get');
+                const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                if (data && data.success && data.profile){
+                    const p = data.profile;
+                    if (profileForm){
+                        profileForm.elements['first_name'].value = p.first_name || '';
+                        profileForm.elements['middle_name'].value = p.middle_name || '';
+                        profileForm.elements['last_name'].value = p.last_name || '';
+                        profileForm.elements['username'].value = p.username || '';
+                        profileForm.elements['email'].value = p.email || '';
+                        profileForm.elements['contact'].value = p.contact || '';
+                        profileForm.elements['address'].value = p.address || '';
+                        profileForm.elements['date_of_birth'].value = p.date_of_birth || '';
+                    }
+                    const url = p.avatar_url ? ('../'+p.avatar_url) : null;
+                    if (url){
+                        if (avatarPreview) avatarPreview.src = url;
+                        if (headerAvatar) headerAvatar.src = url;
+                    }
+                }
+            }catch(_){}
+        }
+        if (profileForm){
+            profileForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const fd = new FormData(profileForm);
+                fd.append('action','profile_update');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (profileStatus){
+                        profileStatus.textContent = data && data.success ? 'Profile updated' : (data && data.error ? data.error : 'Update failed');
+                        profileStatus.style.color = data && data.success ? '#16a34a' : '#dc2626';
+                    }
+                }catch(_){
+                    if (profileStatus){ profileStatus.textContent = 'Network error'; profileStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
+        if (avatarUploadBtn){
+            avatarUploadBtn.addEventListener('click', async function(){
+                const file = avatarInput && avatarInput.files && avatarInput.files[0] ? avatarInput.files[0] : null;
+                if (!file){ if (avatarStatus){ avatarStatus.textContent = 'Select an image'; avatarStatus.style.color = '#dc2626'; } return; }
+                try{
+                    const fd = new FormData();
+                    fd.append('action','profile_avatar_upload');
+                    fd.append('avatar', file);
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success && data.avatar_url){
+                        const url = '../'+data.avatar_url;
+                        if (avatarPreview) avatarPreview.src = url;
+                        if (headerAvatar) headerAvatar.src = url;
+                        if (avatarStatus){ avatarStatus.textContent = 'Avatar updated'; avatarStatus.style.color = '#16a34a'; }
+                    } else {
+                        if (avatarStatus){ avatarStatus.textContent = data && data.error ? data.error : 'Upload failed'; avatarStatus.style.color = '#dc2626'; }
+                    }
+                }catch(_){
+                    if (avatarStatus){ avatarStatus.textContent = 'Network error'; avatarStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
+        function openModal(id){ const el=document.getElementById(id); if(el) el.style.display='flex'; }
+        function closeModal(id){ const el=document.getElementById(id); if(el) el.style.display='none'; }
+        const genKeyBtn = document.getElementById('security-generate-key-btn');
+        const apiStatusEl = document.getElementById('api-status');
+        if (genKeyBtn && apiStatusEl) {
+            genKeyBtn.addEventListener('click', async function(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','security_generate_key');
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success && data.api_key){
+                        apiStatusEl.textContent = 'API key generated: ' + data.api_key.slice(0,8) + '••••••••';
+                        alert('Your API key: ' + data.api_key + '\\nCopy and store it securely. You will not be able to view it again.');
+                    } else {
+                        apiStatusEl.textContent = 'Failed to generate API key';
+                    }
+                }catch(_){
+                    apiStatusEl.textContent = 'Network error';
+                }
+            });
+        }
+        const tfaBtn = document.getElementById('security-enable-2fa-btn');
+        const tfaStatusEl = document.getElementById('tfa-status');
+        let tfaEnabled = false;
+        if (tfaBtn && tfaStatusEl) {
+            tfaBtn.addEventListener('click', async function(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','security_toggle_2fa');
+                    fd.append('enabled', tfaEnabled ? '0' : '1');
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success){
+                        tfaEnabled = !!data.enabled;
+                        tfaStatusEl.innerHTML = tfaEnabled ? '<span class="badge badge-active">Enabled</span>' : '<span class="badge badge-pending">Disabled</span>';
+                        tfaBtn.textContent = tfaEnabled ? 'Disable' : 'Enable';
+                    }
+                }catch(_){}
+            });
+        }
+        const pwdBtn = document.getElementById('security-change-password-btn');
+        const pwdLastChanged = document.getElementById('pwd-last-changed');
+        if (pwdBtn && pwdLastChanged) {
+            const pwdModal = document.createElement('div');
+            pwdModal.id = 'pwd-modal';
+            pwdModal.style = 'position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;';
+            pwdModal.innerHTML = '<div style=\"background:#fff;width:520px;max-width:90%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);\"><div style=\"display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;\"><div style=\"font-weight:600;\">Change Password</div><button class=\"secondary-button\" id=\"pwd-close\">Close</button></div><form id=\"pwd-form\" style=\"padding:16px;display:grid;gap:12px;\"><input class=\"modal-input\" type=\"password\" name=\"current_password\" placeholder=\"Current password\" required><input class=\"modal-input\" type=\"password\" name=\"new_password\" placeholder=\"New password\" required><input class=\"modal-input\" type=\"password\" name=\"confirm_password\" placeholder=\"Confirm new password\" required><div style=\"display:flex;justify-content:flex-end;gap:8px;\"><button type=\"submit\" class=\"primary-button\">Update</button></div><div id=\"pwd-status\" style=\"margin-top:8px;font-weight:500;\"></div></form></div>';
+            document.body.appendChild(pwdModal);
+            const pwdClose = pwdModal.querySelector('#pwd-close');
+            const pwdForm = pwdModal.querySelector('#pwd-form');
+            const pwdStatus = pwdModal.querySelector('#pwd-status');
+            pwdBtn.addEventListener('click', function(){ openModal('pwd-modal'); });
+            if (pwdClose) pwdClose.addEventListener('click', function(){ closeModal('pwd-modal'); if (pwdStatus) pwdStatus.textContent=''; });
+            pwdForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const fd = new FormData(pwdForm);
+                const a = fd.get('new_password'); const b = fd.get('confirm_password');
+                if (String(a||'') !== String(b||'')){ if(pwdStatus){ pwdStatus.textContent = 'Passwords do not match'; pwdStatus.style.color='#dc2626'; } return; }
+                fd.delete('confirm_password');
+                fd.append('action','security_change_password');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (pwdStatus){
+                        pwdStatus.textContent = data && data.success ? 'Password updated' : (data && data.error ? data.error : 'Update failed');
+                        pwdStatus.style.color = data && data.success ? '#16a34a' : '#dc2626';
+                    }
+                    if (data && data.success){ pwdLastChanged.textContent = 'Just changed'; }
+                }catch(_){
+                    if (pwdStatus){ pwdStatus.textContent = 'Network error'; pwdStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
+        const emailBtn = document.getElementById('security-change-email-btn');
+        const emailAddressEl = document.getElementById('email-address');
+        if (emailBtn && emailAddressEl) {
+            const emailModal = document.createElement('div');
+            emailModal.id = 'email-modal';
+            emailModal.style = 'position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;';
+            emailModal.innerHTML = '<div style=\"background:#fff;width:520px;max-width:90%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);\"><div style=\"display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;\"><div style=\"font-weight:600;\">Change Email</div><button class=\"secondary-button\" id=\"email-close\">Close</button></div><form id=\"email-form\" style=\"padding:16px;display:grid;gap:12px;\"><input class=\"modal-input\" type=\"email\" name=\"new_email\" placeholder=\"New email\" required><div style=\"display:flex;justify-content:flex-end;gap:8px;\"><button type=\"submit\" class=\"primary-button\">Update</button></div><div id=\"email-status\" style=\"margin-top:8px;font-weight:500;\"></div></form></div>';
+            document.body.appendChild(emailModal);
+            const emailClose = emailModal.querySelector('#email-close');
+            const emailForm = emailModal.querySelector('#email-form');
+            const emailStatus = emailModal.querySelector('#email-status');
+            emailBtn.addEventListener('click', function(){ openModal('email-modal'); });
+            if (emailClose) emailClose.addEventListener('click', function(){ closeModal('email-modal'); if (emailStatus) emailStatus.textContent=''; });
+            emailForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const fd = new FormData(emailForm);
+                fd.append('action','security_change_email');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (emailStatus){
+                        emailStatus.textContent = data && data.success ? 'Email updated' : (data && data.error ? data.error : 'Update failed');
+                        emailStatus.style.color = data && data.success ? '#16a34a' : '#dc2626';
+                    }
+                    if (data && data.success && data.email){ emailAddressEl.textContent = data.email; }
+                }catch(_){
+                    if (emailStatus){ emailStatus.textContent = 'Network error'; emailStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
+        const delBtn = document.getElementById('security-delete-account-btn');
+        if (delBtn) {
+            const delModal = document.createElement('div');
+            delModal.id = 'del-modal';
+            delModal.style = 'position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;';
+            delModal.innerHTML = '<div style=\"background:#fff;width:520px;max-width:90%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);\"><div style=\"display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;\"><div style=\"font-weight:600;\">Delete Account</div><button class=\"secondary-button\" id=\"del-close\">Close</button></div><div style=\"padding:16px;display:grid;gap:12px;\"><div>This action will permanently delete your account.</div><div style=\"display:flex;justify-content:flex-end;gap:8px;\"><button class=\"secondary-button\" id=\"del-confirm\" style=\"background:#ef4444;color:#fff;border-color:#ef4444;\">Confirm Delete</button></div><div id=\"del-status\" style=\"margin-top:8px;font-weight:500;\"></div></div></div>';
+            document.body.appendChild(delModal);
+            const delClose = delModal.querySelector('#del-close');
+            const delConfirm = delModal.querySelector('#del-confirm');
+            const delStatus = delModal.querySelector('#del-status');
+            delBtn.addEventListener('click', function(){ openModal('del-modal'); });
+            if (delClose) delClose.addEventListener('click', function(){ closeModal('del-modal'); if (delStatus) delStatus.textContent=''; });
+            if (delConfirm) delConfirm.addEventListener('click', async function(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','security_delete_account');
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success){
+                        window.location.href = '../includes/logout.php';
+                    } else {
+                        if (delStatus){ delStatus.textContent = data && data.error ? data.error : 'Delete failed'; delStatus.style.color = '#dc2626'; }
+                    }
+                }catch(_){
+                    if (delStatus){ delStatus.textContent = 'Network error'; delStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
 
         const bwcLinks = document.querySelectorAll('#fire-incident .submenu-item');
         if (bwcLinks && bwcLinks.length) {
@@ -1871,6 +2555,12 @@ $stmt = null;
             if (trainingLinks[0]) trainingLinks[0].setAttribute('data-target','route-mapping-section');
             if (trainingLinks[1]) trainingLinks[1].setAttribute('data-target','gps-tracking-section');
             if (trainingLinks[2]) trainingLinks[2].setAttribute('data-target','summary-report-section');
+        }
+
+        const postincidentLinks = document.querySelectorAll('#postincident .submenu-item');
+        if (postincidentLinks && postincidentLinks.length) {
+            if (postincidentLinks[0]) postincidentLinks[0].setAttribute('data-target','tip-portal-section');
+            if (postincidentLinks[1]) postincidentLinks[1].setAttribute('data-target','message-encryption-section');
         }
 
         const inspectionLinks = document.querySelectorAll('#inspection .submenu-item');
@@ -2014,6 +2704,21 @@ $stmt = null;
                 document.getElementById('home-section').style.display = 'block';
             });
         }
+        
+        const tipPortalBack = document.getElementById('tip-portal-back');
+        if (tipPortalBack) {
+            tipPortalBack.addEventListener('click', function(){
+                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                document.getElementById('home-section').style.display = 'block';
+            });
+        }
+        const msgEncBack = document.getElementById('message-encryption-back');
+        if (msgEncBack) {
+            msgEncBack.addEventListener('click', function(){
+                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                document.getElementById('home-section').style.display = 'block';
+            });
+        }
 
         function autoResizeIframe(el){
             try{
@@ -2088,6 +2793,384 @@ $stmt = null;
                 }
             });
         }
+        
+        function updateKPI(stats){
+            try{
+                const totalEl = document.getElementById('kpi-total-units');
+                const activeEl = document.getElementById('kpi-active-units');
+                const offlineEl = document.getElementById('kpi-offline-units');
+                if (totalEl) totalEl.textContent = String(stats.total_devices || 0);
+                if (activeEl) activeEl.textContent = String(stats.active_devices ?? stats.active ?? 0);
+                if (offlineEl) offlineEl.textContent = String(stats.offline_devices || 0);
+            }catch(_){}
+        }
+        
+        function renderStatus(stats){
+            try{
+                const onPatrol = document.getElementById('count-on-patrol');
+                const responding = document.getElementById('count-responding');
+                const stationary = document.getElementById('count-stationary');
+                const alerts = document.getElementById('count-alerts');
+                if (onPatrol) onPatrol.textContent = String(stats.on_patrol || 0);
+                if (responding) responding.textContent = String(stats.responding || 0);
+                if (stationary) stationary.textContent = String(stats.stationary || 0);
+                if (alerts) alerts.textContent = String(stats.alerts || 0);
+            }catch(_){}
+        }
+        
+        function renderUnitList(units){
+            try{
+                const listEl = document.getElementById('unit-list');
+                if (!listEl) return;
+                if (!units || !units.length) { listEl.innerHTML = '<div style="padding:12px;color:#6b7280;">No units found</div>'; return; }
+                listEl.innerHTML = '';
+                units.forEach(u => {
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'secondary-button';
+                    item.style.display = 'flex';
+                    item.style.justifyContent = 'space-between';
+                    item.style.width = '100%';
+                    item.style.textAlign = 'left';
+                    const loc = (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') ? `${Number(u.lat).toFixed(6)}, ${Number(u.lng).toFixed(6)}` : '—';
+                    item.innerHTML = `<span><strong>${u.callsign || u.id}</strong><span style="color:#6b7280;margin-left:8px;font-size:12px;">${loc}</span></span><span class="badge ${String(u.status).toLowerCase().includes('respond') ? 'badge-active' : (String(u.status).toLowerCase().includes('need') ? 'badge-pending' : 'badge-inactive')}">${u.status}</span>`;
+                    item.addEventListener('click', function(){ updateUnitInfo(u); });
+                    listEl.appendChild(item);
+                });
+            }catch(_){}
+        }
+        
+        function updateUnitInfo(u){
+            try{
+                const uiName = document.getElementById('ui-name');
+                const uiStatus = document.getElementById('ui-status');
+                const uiAssignment = document.getElementById('ui-assignment');
+                const uiLocation = document.getElementById('ui-location');
+                const uiSpeed = document.getElementById('ui-speed');
+                const uiBattery = document.getElementById('ui-battery');
+                const uiDistance = document.getElementById('ui-distance');
+                const uiLast = document.getElementById('ui-last');
+                if (uiName) uiName.textContent = u.callsign || u.id || '—';
+                if (uiStatus) { uiStatus.textContent = u.status || '—'; uiStatus.className = `badge ${String(u.status).toLowerCase().includes('respond') ? 'badge-active' : (String(u.status).toLowerCase().includes('need') ? 'badge-pending' : 'badge-inactive')}`; }
+                if (uiAssignment) uiAssignment.textContent = u.assignment || '—';
+                const loc = (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') ? `${Number(u.lat).toFixed(6)}, ${Number(u.lng).toFixed(6)}` : '—';
+                if (uiLocation) uiLocation.textContent = loc;
+                if (uiSpeed) uiSpeed.textContent = `${Number(u.speed || 0).toFixed(1)} km/h`;
+                if (uiBattery) uiBattery.textContent = `${Number(u.battery ?? 0)}%`;
+                if (uiDistance) uiDistance.textContent = `${Number(u.distance_today || 0).toFixed(1)} km`;
+                if (uiLast) uiLast.textContent = u.last_ping ? new Date(u.last_ping).toLocaleString() : '—';
+            }catch(_){}
+        }
+        
+        async function loadGPSUnits(){
+            try{
+                const res = await fetch('api/gps_data.php', { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.success) {
+                    updateKPI(data.stats || {});
+                    renderStatus(data.stats || {});
+                    renderUnitList(data.units || []);
+                    if (data.units && data.units.length) updateUnitInfo(data.units[0]);
+                }
+            }catch(_){}
+        }
+        
+        const createUnitForm = document.getElementById('create-unit-form');
+        if (createUnitForm){
+            const msg = document.getElementById('create-unit-message');
+            const clearBtn = document.getElementById('clear-unit-form-btn');
+            if (clearBtn){
+                clearBtn.addEventListener('click', function(){
+                    createUnitForm.reset();
+                    const latEl = document.getElementById('latitude-input');
+                    const lngEl = document.getElementById('longitude-input');
+                    if (latEl) latEl.value = '14.697000';
+                    if (lngEl) lngEl.value = '121.088000';
+                    if (msg) { msg.textContent = ''; msg.style.color = ''; }
+                });
+            }
+            createUnitForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const unitId = document.getElementById('unit-id-input').value.trim();
+                const callsign = document.getElementById('callsign-input').value.trim();
+                const assignmentBase = document.getElementById('assignment-input').value.trim();
+                const unitType = document.getElementById('unit-type-input').value;
+                const status = document.getElementById('status-input').value;
+                const latitude = parseFloat(document.getElementById('latitude-input').value);
+                const longitude = parseFloat(document.getElementById('longitude-input').value);
+                if (!unitId || !callsign || !assignmentBase || Number.isNaN(latitude) || Number.isNaN(longitude)) return;
+                const payload = {
+                    unit_id: unitId,
+                    callsign: callsign,
+                    assignment: `${assignmentBase} - ${unitType}`,
+                    latitude: latitude,
+                    longitude: longitude,
+                    status: status,
+                    speed: 0,
+                    battery: 100,
+                    distance_today: 0
+                };
+                try{
+                    const res = await fetch('api/gps_save.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    if (msg) {
+                        msg.textContent = data && data.success ? 'Unit created successfully' : (data && data.error ? data.error : 'Failed to create unit');
+                        msg.style.color = data && data.success ? '#16a34a' : '#dc2626';
+                    }
+                    if (data && data.success) {
+                        createUnitForm.reset();
+                        const latEl = document.getElementById('latitude-input');
+                        const lngEl = document.getElementById('longitude-input');
+                        if (latEl) latEl.value = '14.697000';
+                        if (lngEl) lngEl.value = '121.088000';
+                        loadGPSUnits();
+                    }
+                }catch(_){
+                    if (msg) { msg.textContent = 'Network error'; msg.style.color = '#dc2626'; }
+                }
+            });
+        }
+        
+        loadGPSUnits();
+        
+        const adminMsgContactSearch = document.getElementById('admin-msg-contact-search');
+        const adminMsgContactList = document.getElementById('admin-msg-contact-list');
+        const adminMsgChat = document.getElementById('admin-msg-chat');
+        const adminMsgInput = document.getElementById('admin-msg-input');
+        const adminMsgSendBtn = document.getElementById('admin-msg-send-btn');
+        const adminMsgChatTitle = document.getElementById('admin-msg-chat-title');
+        const adminMsgChatStatus = document.getElementById('admin-msg-chat-status');
+        const adminContacts = [
+            { id:'TANOD', name:'Tanod', online:true },
+            { id:'SECRETARY', name:'Secretary', online:true },
+            { id:'CAPTAIN', name:'Captain', online:true }
+        ];
+        let selectedRole = 'TANOD';
+        function renderAdminContacts(){
+            if (!adminMsgContactList) return;
+            const q = (adminMsgContactSearch && adminMsgContactSearch.value || '').toLowerCase();
+            adminMsgContactList.innerHTML = '';
+            adminContacts.filter(c => !q || c.name.toLowerCase().includes(q)).forEach(c => {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.style.justifyContent = 'space-between';
+                row.style.padding = '10px';
+                row.style.borderRadius = '8px';
+                row.style.cursor = 'pointer';
+                row.style.marginBottom = '6px';
+                row.style.background = selectedRole === c.id ? '#eef2ff' : '#fff';
+                const left = document.createElement('div');
+                left.style.display = 'flex';
+                left.style.alignItems = 'center';
+                const avatar = document.createElement('div');
+                avatar.textContent = c.name.charAt(0).toUpperCase();
+                avatar.style.width = '32px';
+                avatar.style.height = '32px';
+                avatar.style.borderRadius = '50%';
+                avatar.style.background = '#e5e7eb';
+                avatar.style.display = 'flex';
+                avatar.style.alignItems = 'center';
+                avatar.style.justifyContent = 'center';
+                avatar.style.fontWeight = '600';
+                avatar.style.marginRight = '10px';
+                const name = document.createElement('div');
+                name.innerHTML = `<div style="font-weight:600;">${c.name}</div><div style="font-size:12px;color:${c.online ? '#10b981' : '#6b7280'};">${c.online ? 'Online' : 'Offline'}</div>`;
+                left.appendChild(avatar);
+                left.appendChild(name);
+                row.appendChild(left);
+                row.addEventListener('click', function(){
+                    selectedRole = c.id;
+                    if (adminMsgChatTitle) adminMsgChatTitle.textContent = c.name;
+                    if (adminMsgChatStatus) {
+                        adminMsgChatStatus.textContent = c.online ? 'Online' : 'Offline';
+                        adminMsgChatStatus.style.color = c.online ? '#10b981' : '#6b7280';
+                    }
+                    renderAdminContacts();
+                    loadAdminMessages(selectedRole);
+                });
+                adminMsgContactList.appendChild(row);
+            });
+        }
+        function renderAdminChat(messages){
+            if (!adminMsgChat) return;
+            adminMsgChat.innerHTML = '';
+            const welcome = { from:'contact', text:'Hello, how can we assist you?', time:Date.now()-600000 };
+            const all = [welcome].concat(messages || []);
+            all.forEach(m => {
+                const bubble = document.createElement('div');
+                bubble.style.padding = '10px 12px';
+                bubble.style.borderRadius = '12px';
+                bubble.style.maxWidth = '70%';
+                bubble.style.background = (m.from === 'admin') ? '#4f46e5' : '#fff';
+                bubble.style.color = (m.from === 'admin') ? '#fff' : '#111827';
+                bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,.06)';
+                bubble.textContent = m.text || m.message || '';
+                const meta = document.createElement('div');
+                meta.style.fontSize = '12px';
+                meta.style.color = '#6b7280';
+                meta.style.marginTop = '6px';
+                const dt = m.time ? new Date(m.time) : (m.created_at ? new Date(m.created_at) : new Date());
+                meta.textContent = dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                row.style.justifyContent = (m.from === 'admin') ? 'flex-end' : 'flex-start';
+                const wrap = document.createElement('div');
+                wrap.style.margin = '10px';
+                wrap.appendChild(bubble);
+                wrap.appendChild(meta);
+                row.appendChild(wrap);
+                adminMsgChat.appendChild(row);
+            });
+            adminMsgChat.scrollTop = adminMsgChat.scrollHeight;
+        }
+        async function loadAdminMessages(role){
+            try{
+                const fd = new FormData();
+                fd.append('action','list_messages');
+                fd.append('recipient_role', role);
+                const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                if (!res.ok) { renderAdminChat([]); return; }
+                const data = await res.json();
+                const msgs = (data && data.success && Array.isArray(data.messages)) ? data.messages.map(m => ({ from:'admin', text:m.message, created_at:m.created_at })) : [];
+                renderAdminChat(msgs);
+            }catch(_){
+                renderAdminChat([]);
+            }
+        }
+        async function sendAdminMessage(){
+            const text = adminMsgInput ? adminMsgInput.value.trim() : '';
+            if (!text) return;
+            try{
+                const fd = new FormData();
+                fd.append('action','send_message');
+                fd.append('recipient_role', selectedRole);
+                fd.append('message', text);
+                const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                if (data && data.success) {
+                    if (adminMsgInput) adminMsgInput.value = '';
+                    loadAdminMessages(selectedRole);
+                }
+            }catch(_){}
+        }
+        if (adminMsgContactSearch) adminMsgContactSearch.addEventListener('input', renderAdminContacts);
+        if (adminMsgSendBtn) adminMsgSendBtn.addEventListener('click', function(){ sendAdminMessage(); });
+        renderAdminContacts();
+        loadAdminMessages(selectedRole);
+        
+        const userBackBtn = document.getElementById('user-back-btn');
+        if (userBackBtn) {
+            userBackBtn.addEventListener('click', function(){
+                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                document.getElementById('home-section').style.display = 'block';
+            });
+        }
+        const userSearch = document.getElementById('user-search');
+        const userTbody = document.getElementById('user-tbody');
+        const userRoleButtons = document.querySelectorAll('#user-role-filters .user-role-filter');
+        let userData = [];
+        let selectedRoleCategory = 'ALL';
+        function renderUsers(){
+            if (!userTbody) return;
+            const q = (userSearch && userSearch.value || '').toLowerCase();
+            userTbody.innerHTML = '';
+            const arr = userData.filter(u=>{
+                const name = String(((u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||''))).toLowerCase();
+                const email = String(u.email||'').toLowerCase();
+                const role = String(u.role||'').toLowerCase();
+                const roleMatch = selectedRoleCategory === 'ALL' ? true : (String(u.role||'').toUpperCase() === selectedRoleCategory);
+                return roleMatch && (!q || name.includes(q) || email.includes(q) || role.includes(q));
+            });
+            if (!arr.length){
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 5;
+                td.style.padding = '14px';
+                td.textContent = 'No users found.';
+                tr.appendChild(td);
+                userTbody.appendChild(tr);
+                return;
+            }
+            arr.forEach(u=>{
+                const tr = document.createElement('tr');
+                function tdWith(text){ const td=document.createElement('td'); td.style.padding='10px'; td.style.borderBottom='1px solid #f1f5f9'; td.innerHTML=text; return td; }
+                const name = (u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||'');
+                tr.appendChild(tdWith(escapeHtml(name)));
+                tr.appendChild(tdWith(escapeHtml(String(u.username||'')+' • '+String(u.email||''))));
+                tr.appendChild(tdWith(escapeHtml(u.role||'USER')));
+                tr.appendChild(tdWith((parseInt(u.is_verified||0)?'<span class="badge badge-active">Yes</span>':'<span class="badge badge-pending">No</span>')));
+                const created = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+                tr.appendChild(tdWith(escapeHtml(created)));
+                userTbody.appendChild(tr);
+            });
+        }
+        function escapeHtml(s){ const div=document.createElement('div'); div.textContent=String(s||''); return div.innerHTML; }
+        async function loadUsers(){
+            try{
+                const fd = new FormData();
+                fd.append('action','user_list');
+                const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                userData = (data && data.success) ? (data.users||[]) : [];
+                const counts = { ALL: userData.length, ADMIN:0, CAPTAIN:0, SECRETARY:0, TANOD:0, USER:0 };
+                userData.forEach(u=>{ const r=String(u.role||'').toUpperCase(); if (counts[r]!==undefined) counts[r]++; });
+                userRoleButtons.forEach(btn=>{ const r=btn.getAttribute('data-role'); btn.textContent = r.charAt(0)+r.slice(1).toLowerCase() + (counts[r]!==undefined ? ` (${counts[r]})` : ''); if (r==='ALL') btn.textContent = `All (${counts.ALL})`; });
+                renderUsers();
+            }catch(_){ userData = []; renderUsers(); }
+        }
+        if (userSearch) userSearch.addEventListener('input', renderUsers);
+        if (userRoleButtons && userRoleButtons.length){
+            userRoleButtons.forEach(btn=>{
+                btn.addEventListener('click', function(){
+                    selectedRoleCategory = this.getAttribute('data-role');
+                    userRoleButtons.forEach(b=>b.classList.remove('active'));
+                    this.classList.add('active');
+                    renderUsers();
+                });
+            });
+        }
+        const userCreateOpenBtn = document.getElementById('user-create-open-btn');
+        const userCreateModal = document.getElementById('user-create-modal');
+        const userCreateClose = document.getElementById('user-create-close');
+        const userCreateCancel = document.getElementById('user-create-cancel');
+        const userCreateForm = document.getElementById('user-create-form');
+        const userCreateStatus = document.getElementById('user-create-status');
+        function openUserCreate(){ if (userCreateModal) userCreateModal.style.display = 'flex'; }
+        function closeUserCreate(){ if (userCreateModal) userCreateModal.style.display = 'none'; if (userCreateStatus) userCreateStatus.textContent=''; }
+        if (userCreateOpenBtn) userCreateOpenBtn.addEventListener('click', openUserCreate);
+        if (userCreateClose) userCreateClose.addEventListener('click', closeUserCreate);
+        if (userCreateCancel) userCreateCancel.addEventListener('click', closeUserCreate);
+        if (userCreateForm){
+            userCreateForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                const fd = new FormData(userCreateForm);
+                fd.append('action','user_create');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (userCreateStatus) {
+                        userCreateStatus.textContent = data && data.success ? 'Account created' : (data && data.error ? data.error : 'Failed to create');
+                        userCreateStatus.style.color = data && data.success ? '#16a34a' : '#dc2626';
+                    }
+                    if (data && data.success){
+                        closeUserCreate();
+                        userCreateForm.reset();
+                        loadUsers();
+                    }
+                }catch(_){
+                    if (userCreateStatus) { userCreateStatus.textContent = 'Network error'; userCreateStatus.style.color = '#dc2626'; }
+                }
+            });
+        }
+        loadUsers();
 
         const registryBack = document.getElementById('registry-back');
         if (registryBack) {
@@ -2261,43 +3344,6 @@ $stmt = null;
             complaintBack.addEventListener('click', function(){
                 document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
                 document.getElementById('home-section').style.display = 'block';
-            });
-        }
-        
-        const genKeyBtn = document.getElementById('security-generate-key-btn');
-        const apiStatusEl = document.getElementById('api-status');
-        if (genKeyBtn && apiStatusEl) {
-            genKeyBtn.addEventListener('click', function(){
-                const key = 'sk_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-                apiStatusEl.textContent = 'API key generated: ' + key.slice(0,8) + '••••••••';
-            });
-        }
-        const tfaBtn = document.getElementById('security-enable-2fa-btn');
-        const tfaStatusEl = document.getElementById('tfa-status');
-        if (tfaBtn && tfaStatusEl) {
-            tfaBtn.addEventListener('click', function(){
-                tfaStatusEl.innerHTML = '<span class="badge badge-active">Enabled</span>';
-                tfaBtn.textContent = 'Disable';
-            });
-        }
-        const pwdBtn = document.getElementById('security-change-password-btn');
-        const pwdLastChanged = document.getElementById('pwd-last-changed');
-        if (pwdBtn && pwdLastChanged) {
-            pwdBtn.addEventListener('click', function(){
-                pwdLastChanged.textContent = 'Just changed • Demo';
-            });
-        }
-        const emailBtn = document.getElementById('security-change-email-btn');
-        if (emailBtn) {
-            emailBtn.addEventListener('click', function(){
-                alert('Email change UI coming soon');
-            });
-        }
-        const delBtn = document.getElementById('security-delete-account-btn');
-        if (delBtn) {
-            delBtn.addEventListener('click', function(){
-                const ok = confirm('Are you sure you want to delete your account? This action cannot be undone.');
-                if (ok) { alert('Account deletion request submitted (demo)'); }
             });
         }
 

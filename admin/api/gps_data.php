@@ -37,11 +37,38 @@ try {
         $unit['last_ping'] = date(DATE_ATOM, strtotime($unit['last_ping']));
     }
     
+    // Additional statistics
+    $onPatrol = count(array_filter($units, fn($u) => $u['status'] === 'On Patrol'));
+    $responding = count(array_filter($units, fn($u) => $u['status'] === 'Responding'));
+    $stationary = count(array_filter($units, fn($u) => $u['status'] === 'Stationary'));
+    $alerts = count(array_filter($units, fn($u) => $u['status'] === 'Needs Assistance'));
+    
+    // Total and offline devices
+    $totalDevices = 0;
+    $offlineDevices = 0;
+    try {
+        $totalStmt = $pdo->query("SELECT COUNT(*) AS total FROM gps_units");
+        $totalRow = $totalStmt->fetch();
+        $totalDevices = intval($totalRow['total'] ?? 0);
+        
+        $offlineStmt = $pdo->query("SELECT COUNT(*) AS offline FROM gps_units WHERE is_active = 0");
+        $offlineRow = $offlineStmt->fetch();
+        $offlineDevices = intval($offlineRow['offline'] ?? 0);
+    } catch (\Throwable $e) {
+        $totalDevices = count($units);
+        $offlineDevices = 0;
+    }
+    
     // Calculate statistics
     $stats = [
-        'active' => count(array_filter($units, fn($u) => in_array($u['status'], ['On Patrol', 'Responding']))),
-        'stationary' => count(array_filter($units, fn($u) => $u['status'] === 'Stationary')),
-        'alerts' => count(array_filter($units, fn($u) => $u['status'] === 'Needs Assistance')),
+        'total_devices' => $totalDevices,
+        'active' => $onPatrol + $responding,
+        'active_devices' => $onPatrol + $responding,
+        'offline_devices' => $offlineDevices,
+        'on_patrol' => $onPatrol,
+        'responding' => $responding,
+        'stationary' => $stationary,
+        'alerts' => $alerts,
         'total_distance' => array_reduce($units, fn($carry, $item) => $carry + ($item['distance_today'] ?? 0), 0),
         'timestamp' => date(DATE_ATOM)
     ];
