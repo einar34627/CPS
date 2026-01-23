@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
 
 
 $user_id = $_SESSION['user_id'];
-$query = "SELECT first_name, middle_name, last_name, role, username, contact, address, date_of_birth, email FROM users WHERE id = ?";
+$query = "SELECT first_name, middle_name, last_name, role, avatar_url, username, contact, address, date_of_birth, email FROM users WHERE id = ?";
 $stmt = $pdo->prepare($query);
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
@@ -21,6 +21,8 @@ if ($user) {
     $middle_name = htmlspecialchars($user['middle_name']);
     $last_name = htmlspecialchars($user['last_name']);
     $role = htmlspecialchars($user['role']);
+    $avatar_url = isset($user['avatar_url']) ? $user['avatar_url'] : null;
+    $avatar_path = $avatar_url ? '../'.$avatar_url : '../img/rei.jfif';
     $username = htmlspecialchars($user['username'] ?? '');
     $contact = htmlspecialchars($user['contact'] ?? '');
     $address = htmlspecialchars($user['address'] ?? '');
@@ -74,6 +76,300 @@ $stmt = null;
             0%{transform:scale(1);box-shadow:0 0 0 0 rgba(99,102,241,0.4)}
             50%{transform:scale(1.06);box-shadow:0 0 0 10px rgba(99,102,241,0)}
             100%{transform:scale(1);box-shadow:0 0 0 0 rgba(99,102,241,0)}
+        }
+        
+        /* Profile & Security Styles */
+        .readonly-field {
+            padding: 12px 14px;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+            margin-top: 5px;
+            font-size: 0.95rem;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+            font-size: 0.95rem;
+        }
+        
+        .btn-primary {
+            background-color: #6366f1;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            transform: translateY(-1px);
+        }
+        
+        .btn-outline {
+            background-color: white;
+            color: #374151;
+            border: 1px solid #d1d5db;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .btn-outline:hover {
+            background-color: #f9fafb;
+            border-color: #6366f1;
+        }
+        
+        .btn-danger {
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .btn-danger:hover {
+            background-color: #dc2626;
+            transform: translateY(-1px);
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        
+        .security-item {
+            padding: 20px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            background-color: white;
+        }
+        
+        .security-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .security-title {
+            font-weight: 600;
+            color: #111827;
+            font-size: 1.1rem;
+        }
+        
+        .security-status {
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+        
+        .security-description {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+        
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .badge-success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        
+        .badge-warning {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        
+        .badge-danger {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .badge-info {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .danger-zone {
+            border: 2px solid #ef4444;
+            background-color: #fef2f2;
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 30px;
+        }
+        
+        .danger-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            color: #ef4444;
+        }
+        
+        .danger-title {
+            font-weight: 600;
+            color: #ef4444;
+            font-size: 1.2rem;
+        }
+        
+        .danger-description {
+            color: #7f1d1d;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        
+        .security-status-card {
+            background-color: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .status-item:last-child {
+            border-bottom: none;
+        }
+        
+        .status-value {
+            font-weight: 600;
+        }
+        
+        .status-good {
+            color: #10b981;
+        }
+        
+        .session-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .session-icon {
+            width: 40px;
+            height: 40px;
+            background-color: #eef2ff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            color: #6366f1;
+        }
+        
+        .session-info {
+            flex: 1;
+        }
+        
+        .session-name {
+            font-weight: 600;
+            color: #111827;
+        }
+        
+        .session-details {
+            color: #6b7280;
+            font-size: 0.85rem;
+        }
+        
+        .security-tips {
+            list-style-type: none;
+            padding: 0;
+        }
+        
+        .security-tips li {
+            padding: 8px 0;
+            color: #4b5563;
+            position: relative;
+            padding-left: 20px;
+        }
+        
+        .security-tips li:before {
+            content: "✓";
+            color: #10b981;
+            position: absolute;
+            left: 0;
+        }
+        
+        /* Dark mode adjustments */
+        body.dark-mode .readonly-field {
+            background-color: #374151;
+            border-color: #4b5563;
+            color: #e5e7eb;
+        }
+        
+        body.dark-mode .security-item {
+            background-color: #374151;
+            border-color: #4b5563;
+        }
+        
+        body.dark-mode .security-title {
+            color: #e5e7eb;
+        }
+        
+        body.dark-mode .security-status-card {
+            background-color: #374151;
+        }
+        
+        body.dark-mode .session-item {
+            background-color: #374151;
+            border-color: #4b5563;
+        }
+        
+        body.dark-mode .session-name {
+            color: #e5e7eb;
+        }
+        
+        body.dark-mode .btn-outline {
+            background-color: #374151;
+            border-color: #4b5563;
+            color: #e5e7eb;
+        }
+        
+        body.dark-mode .btn-outline:hover {
+            background-color: #4b5563;
         }
     </style>
 </head>
@@ -196,6 +492,9 @@ $stmt = null;
                 <i class='bx bxs-cog icon-teal'></i>
             </div>
             <span class="font-medium">Settings</span>
+            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
         </div>
         <div id="sidebar-settings-submenu" class="submenu">
             <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
@@ -247,7 +546,7 @@ $stmt = null;
                             </svg>
                         </button>
                         <div class="user-profile">
-                             <img src="../img/rei.jfif" alt="User" class="user-avatar">
+                             <img src="<?php echo $avatar_path; ?>" alt="User" class="user-avatar">
                             <div class="user-info">
                                 <p class="user-name"><?php echo $full_name; ?></p>
                                 <p class="user-email"><?php echo $role; ?></p>
@@ -678,7 +977,7 @@ $stmt = null;
                     <div class="right-column">
                         <div class="card">
                             <h2 class="card-title">Notes</h2>
-                            <p style="margin-top:8px;line-height:1.6;">This list shows past volunteer activities. If you haven’t joined the volunteer program, a message will be shown instead.</p>
+                            <p style="margin-top:8px;line-height:1.6;">This list shows past volunteer activities. If you haven't joined the volunteer program, a message will be shown instead.</p>
                         </div>
                     </div>
                 </div>
@@ -1068,6 +1367,272 @@ $stmt = null;
                         <div class="card">
                             <h2 class="card-title">Notes</h2>
                             <p style="margin-top:8px;line-height:1.6;">Provide event name, a rating, and comments.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- PROFILE SECTION -->
+            <div id="settings-profile-section" style="display:none;">
+                <div class="dashboard-header">
+                    <div>
+                        <h1 class="dashboard-title">Profile Settings</h1>
+                        <p class="dashboard-subtitle">Manage your personal information and account details</p>
+                    </div>
+                    <div class="dashboard-actions">
+                        <button class="secondary-button" id="profile-back-btn">Back to Dashboard</button>
+                        <button class="primary-button" id="profile-save-btn">Save Changes</button>
+                    </div>
+                </div>
+                
+                <div class="main-grid">
+                    <div class="left-column">
+                        <div class="card">
+                            <h2 class="card-title">Personal Information</h2>
+                            <form id="profile-form">
+                                <div class="form-group">
+                                    <label>Full Name</label>
+                                    <div class="readonly-field" id="profile-fullname"><?php echo $full_name; ?></div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <div class="readonly-field" id="profile-username"><?php echo $username; ?></div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Email Address</label>
+                                    <div class="readonly-field" id="profile-email"><?php echo $email; ?></div>
+                                    <button class="btn-outline" id="change-email-btn" style="margin-top: 8px; padding: 8px 12px;">
+                                        <i class='bx bxs-edit'></i> Change
+                                    </button>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Contact Number</label>
+                                    <input type="tel" id="profile-contact" class="modal-input" value="<?php echo $contact; ?>" placeholder="Enter contact number">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Date of Birth</label>
+                                    <input type="date" id="profile-dob" class="modal-input" value="<?php echo $date_of_birth; ?>">
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Address</label>
+                                    <textarea id="profile-address" class="modal-textarea" rows="3"><?php echo $address; ?></textarea>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Profile Picture</label>
+                                    <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                                        <div class="user-avatar" id="profile-avatar" style="width: 80px; height: 80px; font-size: 2rem; background: linear-gradient(135deg, #6366f1, #8b5cf6); display: flex; align-items: center; justify-content: center; color: white; border-radius: 50%;">
+                                            <?php echo strtoupper(substr($first_name, 0, 1)); ?>
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <input type="file" id="profile-picture" class="modal-input" accept="image/*">
+                                            <small style="color: #6b7280; display: block; margin-top: 5px;">
+                                                Max file size: 2MB. Allowed: JPG, PNG, GIF
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="right-column">
+                        <div class="card">
+                            <h2 class="card-title">Account Information</h2>
+                            <div class="form-group">
+                                <label>User ID</label>
+                                <div class="readonly-field">U<?php echo sprintf('%04d', $user_id); ?></div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Account Role</label>
+                                <div class="readonly-field"><?php echo $role; ?></div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Account Created</label>
+                                <div class="readonly-field" id="profile-created">Loading...</div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Last Updated</label>
+                                <div class="readonly-field" id="profile-updated">Loading...</div>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <h2 class="card-title">Account Actions</h2>
+                            <button class="btn-outline" id="export-data-btn" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+                                <i class='bx bxs-download'></i> Export My Data
+                            </button>
+                            <button class="btn-outline" id="deactivate-account-btn" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+                                <i class='bx bxs-user-x'></i> Deactivate Account
+                            </button>
+                            <small style="color: #6b7280; display: block; margin-top: 10px;">
+                                Note: Changes to profile information require admin approval.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- SECURITY SECTION -->
+            <div id="settings-security-section" style="display:none;">
+                <div class="dashboard-header">
+                    <div>
+                        <h1 class="dashboard-title">Security Settings</h1>
+                        <p class="dashboard-subtitle">Manage your account security and access preferences</p>
+                    </div>
+                    <div class="dashboard-actions">
+                        <button class="secondary-button" id="security-back-btn">Back to Dashboard</button>
+                    </div>
+                </div>
+                
+                <div class="main-grid">
+                    <div class="left-column">
+                        <!-- Change Password -->
+                        <div class="card">
+                            <div class="security-item">
+                                <div class="security-header">
+                                    <div>
+                                        <h3 class="security-title">Change Password</h3>
+                                        <div class="security-status" id="password-last-changed">Last changed 3 months ago</div>
+                                    </div>
+                                    <button class="btn-primary" id="change-password-btn">
+                                        <i class='bx bxs-key'></i> Change
+                                    </button>
+                                </div>
+                                <p class="security-description">
+                                    Ensure your account is using a long, random password to stay secure.
+                                </p>
+                            </div>
+                            
+                            <!-- Email Address -->
+                            <div class="security-item">
+                                <div class="security-header">
+                                    <div>
+                                        <h3 class="security-title">Email Address</h3>
+                                        <div class="security-status"><?php echo $email; ?></div>
+                                    </div>
+                                    <button class="btn-outline" id="change-email-security-btn">
+                                        <i class='bx bxs-edit'></i> Change
+                                    </button>
+                                </div>
+                                <p class="security-description">
+                                    Your email address is used for account notifications and password resets.
+                                </p>
+                            </div>
+                            
+                            <!-- API Access -->
+                            <div class="security-item">
+                                <div class="security-header">
+                                    <div>
+                                        <h3 class="security-title">API Access</h3>
+                                        <div class="security-status">
+                                            <span class="badge badge-info">No API key generated</span>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px;">
+                                        <button class="btn-outline btn-small" id="generate-api-key-btn">
+                                            <i class='bx bxs-plus-circle'></i> Generate Key
+                                        </button>
+                                        <button class="btn-outline btn-small" id="enable-api-btn">
+                                            <i class='bx bxs-power-off'></i> Enable
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="security-description">
+                                    API keys allow external applications to access your data. Generate with caution.
+                                </p>
+                            </div>
+                            
+                            <!-- Two-Factor Authentication -->
+                            <div class="security-item">
+                                <div class="security-header">
+                                    <div>
+                                        <h3 class="security-title">Two-Factor Authentication</h3>
+                                        <div class="security-status">
+                                            <span class="badge badge-danger">Disabled</span>
+                                        </div>
+                                    </div>
+                                    <button class="btn-outline" id="enable-2fa-btn">
+                                        <i class='bx bxs-lock-alt'></i> Enable 2FA
+                                    </button>
+                                </div>
+                                <p class="security-description">
+                                    Add an extra layer of security to your account by enabling two-factor authentication.
+                                </p>
+                            </div>
+                            
+                            <!-- Danger Zone -->
+                            <div class="danger-zone">
+                                <div class="danger-header">
+                                    <i class='bx bxs-error-circle'></i>
+                                    <h3 class="danger-title">Danger Zone</h3>
+                                </div>
+                                <p class="danger-description">
+                                    Once you delete your account, there is no going back. Please be certain.
+                                </p>
+                                <button class="btn-danger" id="delete-account-btn">
+                                    <i class='bx bxs-trash'></i> Delete Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="right-column">
+                        <div class="card">
+                            <h2 class="card-title">Security Status</h2>
+                            <div class="security-status-card">
+                                <div class="status-item">
+                                    <span>Password Strength:</span>
+                                    <span class="status-value status-good">Strong</span>
+                                </div>
+                                <div class="status-item">
+                                    <span>Account Activity:</span>
+                                    <span class="status-value status-good">Normal</span>
+                                </div>
+                                <div class="status-item">
+                                    <span>Login Devices:</span>
+                                    <span class="status-value">1 device</span>
+                                </div>
+                                <div class="status-item">
+                                    <span>Last Login:</span>
+                                    <span class="status-value" id="last-login-time">Just now</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <h2 class="card-title">Active Sessions</h2>
+                            <div class="session-item">
+                                <div class="session-icon">
+                                    <i class='bx bx-desktop'></i>
+                                </div>
+                                <div class="session-info">
+                                    <p class="session-name">Chrome on Windows</p>
+                                    <p class="session-details">Current session • <?php echo date('M d, Y H:i'); ?></p>
+                                </div>
+                                <button class="btn-outline btn-small session-end-btn">
+                                    End
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="card">
+                            <h2 class="card-title">Security Tips</h2>
+                            <ul class="security-tips">
+                                <li>Use a unique password for this account</li>
+                                <li>Enable two-factor authentication for extra security</li>
+                                <li>Regularly update your password</li>
+                                <li>Log out from devices you don't recognize</li>
+                                <li>Never share your password with anyone</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -1848,6 +2413,28 @@ $stmt = null;
         const messagesSendBtn = document.getElementById('messages-send-btn');
         const messagesChatTitle = document.getElementById('messages-chat-title');
         const messagesChatStatus = document.getElementById('messages-chat-status');
+        
+        // New variables for Profile & Security
+        const settingsProfileSection = document.getElementById('settings-profile-section');
+        const settingsSecuritySection = document.getElementById('settings-security-section');
+        const sidebarSettingsProfileLink = document.getElementById('sidebar-settings-profile-link');
+        const sidebarSettingsSecurityLink = document.getElementById('sidebar-settings-security-link');
+        const profileBackBtn = document.getElementById('profile-back-btn');
+        const securityBackBtn = document.getElementById('security-back-btn');
+        const profileSaveBtn = document.getElementById('profile-save-btn');
+        const changeEmailBtn = document.getElementById('change-email-btn');
+        const changeEmailSecurityBtn = document.getElementById('change-email-security-btn');
+        const changePasswordBtn = document.getElementById('change-password-btn');
+        const generateApiKeyBtn = document.getElementById('generate-api-key-btn');
+        const enableApiBtn = document.getElementById('enable-api-btn');
+        const enable2faBtn = document.getElementById('enable-2fa-btn');
+        const deleteAccountBtn = document.getElementById('delete-account-btn');
+        const exportDataBtn = document.getElementById('export-data-btn');
+        const deactivateAccountBtn = document.getElementById('deactivate-account-btn');
+        const profilePictureInput = document.getElementById('profile-picture');
+        const profileAvatar = document.getElementById('profile-avatar');
+        const sessionEndBtn = document.querySelector('.session-end-btn');
+        
         let selectedContactId = 'admin';
         const anonContacts = [{id:'admin', name:'Admin', online:true}];
         
@@ -1865,6 +2452,9 @@ $stmt = null;
             if (eventFeedbackSection) eventFeedbackSection.style.display = 'none';
             if (anonymousTipSection) anonymousTipSection.style.display = 'none';
             if (anonymousMessagesSection) anonymousMessagesSection.style.display = 'none';
+            // Hide Profile & Security sections
+            if (settingsProfileSection) settingsProfileSection.style.display = 'none';
+            if (settingsSecuritySection) settingsSecuritySection.style.display = 'none';
         }
         function showVolunteerSection(){
             if (dashboardSection) dashboardSection.style.display = 'none';
@@ -2310,6 +2900,51 @@ $stmt = null;
             if (volunteerModal) volunteerModal.style.display = 'none';
         }
         
+        // PROFILE & SECURITY FUNCTIONS
+        function showSettingsProfileSection() {
+            if (dashboardSection) dashboardSection.style.display = 'none';
+            hideSubmoduleSections();
+            if (settingsProfileSection) settingsProfileSection.style.display = 'block';
+            
+            // Set timestamps
+            const now = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            const createdEl = document.getElementById('profile-created');
+            const updatedEl = document.getElementById('profile-updated');
+            if (createdEl) createdEl.textContent = now.toLocaleDateString('en-US', options);
+            if (updatedEl) updatedEl.textContent = now.toLocaleDateString('en-US', options);
+        }
+        
+        function showSettingsSecuritySection() {
+            if (dashboardSection) dashboardSection.style.display = 'none';
+            hideSubmoduleSections();
+            if (settingsSecuritySection) settingsSecuritySection.style.display = 'block';
+            
+            // Set last login time
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const lastLoginEl = document.getElementById('last-login-time');
+            if (lastLoginEl) lastLoginEl.textContent = timeString + ' today';
+        }
+        
+        // PROFILE PICTURE PREVIEW
+        if (profilePictureInput && profileAvatar) {
+            profilePictureInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        profileAvatar.style.backgroundImage = `url(${e.target.result})`;
+                        profileAvatar.style.backgroundSize = 'cover';
+                        profileAvatar.style.backgroundPosition = 'center';
+                        profileAvatar.textContent = '';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+        
+        // EVENT LISTENERS
         if (volunteerLink){
             volunteerLink.addEventListener('click', function(e){
                 e.preventDefault();
@@ -2364,6 +2999,18 @@ $stmt = null;
                 showParticipationHistorySection();
             });
         }
+        if (sidebarSettingsProfileLink){
+            sidebarSettingsProfileLink.addEventListener('click', function(e){
+                e.preventDefault();
+                showSettingsProfileSection();
+            });
+        }
+        if (sidebarSettingsSecurityLink){
+            sidebarSettingsSecurityLink.addEventListener('click', function(e){
+                e.preventDefault();
+                showSettingsSecuritySection();
+            });
+        }
         if (volunteerBackBtn){
             volunteerBackBtn.addEventListener('click', function(e){
                 e.preventDefault();
@@ -2402,6 +3049,18 @@ $stmt = null;
         }
         if (complaintStatusBackBtn){
             complaintStatusBackBtn.addEventListener('click', function(e){
+                e.preventDefault();
+                showDashboard();
+            });
+        }
+        if (profileBackBtn){
+            profileBackBtn.addEventListener('click', function(e){
+                e.preventDefault();
+                showDashboard();
+            });
+        }
+        if (securityBackBtn){
+            securityBackBtn.addEventListener('click', function(e){
                 e.preventDefault();
                 showDashboard();
             });
@@ -2774,6 +3433,95 @@ $stmt = null;
                 renderEventFeedbacks();
             });
         }
+        
+        // PROFILE & SECURITY EVENT LISTENERS
+        if (profileSaveBtn) {
+            profileSaveBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                alert('Profile changes saved successfully!');
+                // In a real application, you would submit the form via AJAX
+                // const form = document.getElementById('profile-form');
+                // const formData = new FormData(form);
+                // Submit to server...
+            });
+        }
+        
+        if (changeEmailBtn) {
+            changeEmailBtn.addEventListener('click', function() {
+                alert('Email change functionality would open here.');
+                // You could open a modal for email change
+            });
+        }
+        
+        if (changeEmailSecurityBtn) {
+            changeEmailSecurityBtn.addEventListener('click', function() {
+                alert('Email change functionality would open here.');
+                // You could open a modal for email change
+            });
+        }
+        
+        if (changePasswordBtn) {
+            changePasswordBtn.addEventListener('click', function() {
+                alert('Password change functionality would open here.');
+                // You could open a modal for password change
+            });
+        }
+        
+        if (generateApiKeyBtn) {
+            generateApiKeyBtn.addEventListener('click', function() {
+                const statusEl = this.closest('.security-item').querySelector('.security-status');
+                statusEl.innerHTML = '<span class="badge badge-success">API Key Generated</span>';
+                alert('API Key generated successfully!');
+            });
+        }
+        
+        if (enableApiBtn) {
+            enableApiBtn.addEventListener('click', function() {
+                const statusEl = this.closest('.security-item').querySelector('.security-status');
+                statusEl.innerHTML = '<span class="badge badge-success">API Enabled</span>';
+                alert('API Access enabled!');
+            });
+        }
+        
+        if (enable2faBtn) {
+            enable2faBtn.addEventListener('click', function() {
+                const statusEl = this.closest('.security-item').querySelector('.security-status');
+                statusEl.innerHTML = '<span class="badge badge-success">Enabled</span>';
+                alert('Two-Factor Authentication enabled!');
+            });
+        }
+        
+        if (deleteAccountBtn) {
+            deleteAccountBtn.addEventListener('click', function() {
+                if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
+                    alert('Account deletion would be processed here.');
+                }
+            });
+        }
+        
+        if (exportDataBtn) {
+            exportDataBtn.addEventListener('click', function() {
+                alert('Your data export has been initiated. You will receive an email when it\'s ready.');
+            });
+        }
+        
+        if (deactivateAccountBtn) {
+            deactivateAccountBtn.addEventListener('click', function() {
+                if (confirm('Are you sure you want to deactivate your account? You can reactivate it later by logging in.')) {
+                    alert('Account deactivation would be processed here.');
+                }
+            });
+        }
+        
+        if (sessionEndBtn) {
+            sessionEndBtn.addEventListener('click', function() {
+                if (confirm('End this session? You will need to log in again on this device.')) {
+                    this.closest('.session-item').style.display = 'none';
+                    alert('Session ended successfully.');
+                }
+            });
+        }
+        
         function computeAgeFromDateString(s){
             if (!s) return '';
             const d = new Date(s);

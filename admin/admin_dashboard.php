@@ -83,14 +83,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         } elseif ($action === 'profile_get') {
             try {
-                $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role, avatar_url FROM users WHERE id = ?");
+                $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role, avatar_url, created_at, updated_at FROM users WHERE id = ?");
                 $stmt->execute([$uid]);
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 echo json_encode(['success'=>true,'profile'=>$row ?: []]);
                 exit();
             } catch (Exception $e) {
                 try {
-                    $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role FROM users WHERE id = ?");
+                    $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name, username, email, contact, address, date_of_birth, role, created_at, updated_at FROM users WHERE id = ?");
                     $stmt->execute([$uid]);
                     $row = $stmt->fetch(PDO::FETCH_ASSOC);
                     $row = $row ?: [];
@@ -267,6 +267,11 @@ if ($user) {
     $role = htmlspecialchars($user['role']);
     $avatar_url = isset($user['avatar_url']) ? $user['avatar_url'] : null;
     $avatar_path = $avatar_url ? '../'.$avatar_url : 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+    $username = htmlspecialchars($user['username'] ?? '');
+    $contact = htmlspecialchars($user['contact'] ?? '');
+    $address = htmlspecialchars($user['address'] ?? '');
+    $date_of_birth = htmlspecialchars($user['date_of_birth'] ?? '');
+    $email = htmlspecialchars($user['email'] ?? '');
     
     $full_name = $first_name;
     if (!empty($middle_name)) {
@@ -1985,94 +1990,199 @@ $stmt = null;
                 </div>
             </div>
             <div class="content-section" id="settings-profile-section">
-                <div class="settings-card">
-                    <div class="settings-nav">
-                        <span class="settings-tab active" id="settings-tab-profile">Profile</span>
-                        <span class="settings-tab" id="settings-tab-security">Security</span>
+                <div class="dashboard-header">
+                    <div>
+                        <h1 class="dashboard-title">Profile Settings</h1>
+                        <p class="dashboard-subtitle">Manage your personal information and account details</p>
                     </div>
-                    <div class="settings-title">Profile</div>
-                    <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
-                        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
-                            <img id="profile-avatar-preview" src="<?php echo htmlspecialchars($avatar_path); ?>" alt="Avatar" style="width:96px;height:96px;border-radius:50%;object-fit:cover;">
-                            <div style="display:flex;gap:8px;">
-                                <input type="file" id="profile-avatar-input" accept="image/*">
-                                <button class="secondary-button" id="profile-avatar-upload-btn">Upload</button>
-                            </div>
-                            <div id="avatar-status" style="font-weight:500;"></div>
+                    <div class="dashboard-actions">
+                        <button class="secondary-button" id="profile-back-btn">Back to Dashboard</button>
+                        <button class="primary-button" id="profile-save-btn">Save Changes</button>
+                    </div>
+                </div>
+                <div class="main-grid">
+                    <div class="left-column">
+                        <div class="card">
+                            <h2 class="card-title">Personal Information</h2>
+                            <form id="profile-form">
+                                <div class="form-group">
+                                    <label>Full Name</label>
+                                    <div class="readonly-field" id="profile-fullname"><?php echo $full_name; ?></div>
+                                    <input type="hidden" name="first_name" value="<?php echo htmlspecialchars($first_name); ?>">
+                                    <input type="hidden" name="middle_name" value="<?php echo htmlspecialchars($middle_name); ?>">
+                                    <input type="hidden" name="last_name" value="<?php echo htmlspecialchars($last_name); ?>">
+                                </div>
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <div class="readonly-field" id="profile-username"><?php echo $username; ?></div>
+                                    <input type="hidden" name="username" value="<?php echo htmlspecialchars($username); ?>">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email Address</label>
+                                    <div class="readonly-field" id="profile-email"><?php echo $email; ?></div>
+                                    <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
+                                    <button class="btn-outline" id="change-email-btn" style="margin-top: 8px; padding: 8px 12px;">
+                                        <i class='bx bxs-edit'></i> Change
+                                    </button>
+                                </div>
+                                <div class="form-group">
+                                    <label>Contact Number</label>
+                                    <input type="tel" name="contact" id="profile-contact" class="modal-input" value="<?php echo $contact; ?>" placeholder="Enter contact number">
+                                </div>
+                                <div class="form-group">
+                                    <label>Date of Birth</label>
+                                    <input type="date" name="date_of_birth" id="profile-dob" class="modal-input" value="<?php echo $date_of_birth; ?>">
+                                </div>
+                                <div class="form-group">
+                                    <label>Address</label>
+                                    <textarea name="address" id="profile-address" class="modal-textarea" rows="3" placeholder="Enter address"><?php echo $address; ?></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>Profile Picture</label>
+                                    <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                                        <img id="profile-avatar-preview" src="<?php echo htmlspecialchars($avatar_path); ?>" alt="Avatar" style="width:80px;height:80px;border-radius:50%;object-fit:cover;">
+                                        <div style="flex: 1;">
+                                            <input type="file" id="profile-avatar-input" class="modal-input" accept="image/*">
+                                            <small style="color: #6b7280; display: block; margin-top: 5px;">Max file size: 5MB. Allowed: JPG, PNG, WEBP</small>
+                                            <button type="button" class="secondary-button" id="profile-avatar-upload-btn" style="margin-top:8px;">Upload</button>
+                                            <div id="avatar-status" style="font-weight:500;margin-top:6px;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="profile-status" style="margin-top:8px;font-weight:500;"></div>
+                            </form>
                         </div>
-                        <form id="profile-form" style="flex:1;min-width:320px;max-width:640px;">
-                            <div style="display:grid;grid-template-columns:1fr;gap:12px;">
-                                <input class="modal-input" type="text" name="first_name" placeholder="First name">
-                                <input class="modal-input" type="text" name="middle_name" placeholder="Middle name">
-                                <input class="modal-input" type="text" name="last_name" placeholder="Last name">
-                                <input class="modal-input" type="text" name="username" placeholder="Username">
-                                <input class="modal-input" type="email" name="email" placeholder="Email">
-                                <input class="modal-input" type="text" name="contact" placeholder="Contact">
-                                <input class="modal-input" type="date" name="date_of_birth" placeholder="Date of birth">
-                                <input class="modal-input" type="text" name="address" placeholder="Address">
+                    </div>
+                    <div class="right-column">
+                        <div class="card">
+                            <h2 class="card-title">Account Information</h2>
+                            <div class="form-group">
+                                <label>User ID</label>
+                                <div class="readonly-field">U<?php echo sprintf('%04d', $user_id); ?></div>
                             </div>
-                            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
-                                <button type="submit" class="primary-button" id="profile-save-btn">Save Changes</button>
+                            <div class="form-group">
+                                <label>Account Role</label>
+                                <div class="readonly-field"><?php echo $role; ?></div>
                             </div>
-                            <div id="profile-status" style="margin-top:8px;font-weight:500;"></div>
-                        </form>
+                            <div class="form-group">
+                                <label>Account Created</label>
+                                <div class="readonly-field" id="profile-created">Loading...</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Last Updated</label>
+                                <div class="readonly-field" id="profile-updated">Loading...</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2 class="card-title">Account Actions</h2>
+                            <button class="btn-outline" id="export-data-btn" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+                                <i class='bx bxs-download'></i> Export My Data
+                            </button>
+                            <button class="btn-outline" id="deactivate-account-btn" style="width: 100%; margin-bottom: 10px; padding: 10px;">
+                                <i class='bx bxs-user-x'></i> Deactivate Account
+                            </button>
+                            <small style="color: #6b7280; display: block; margin-top: 10px;">
+                                Note: Changes to profile information require admin approval.
+                            </small>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="content-section" id="settings-security-section">
-                <div class="settings-card">
-                    <div class="settings-nav">
-                        <span class="settings-tab">Profile</span>
-                        <span class="settings-tab active">Security</span>
+                <div class="dashboard-header">
+                    <div>
+                        <h1 class="dashboard-title">Security Settings</h1>
+                        <p class="dashboard-subtitle">Manage your account security and access preferences</p>
                     </div>
-                    <div class="settings-title">Security</div>
-                    <div class="settings-list">
-                        <div class="settings-item">
-                            <div class="settings-item-left">
-                                <div class="settings-item-icon"><i class='bx bxs-lock-alt'></i></div>
-                                <div>
-                                    <div class="settings-item-title">Change Password</div>
-                                    <div class="settings-item-desc" id="pwd-last-changed">Last changed 3 months ago</div>
+                    <div class="dashboard-actions">
+                        <button class="secondary-button" id="security-back-btn">Back to Dashboard</button>
+                    </div>
+                </div>
+                <div class="main-grid">
+                    <div class="left-column">
+                        <div class="card">
+                            <div style="display:flex;flex-direction:column;gap:16px;">
+                                <div class="security-item">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                                        <div>
+                                            <h3 class="card-title" style="margin:0;">Change Password</h3>
+                                            <div id="pwd-last-changed" style="color:#6b7280;font-size:14px;">Last changed 3 months ago</div>
+                                        </div>
+                                        <button class="primary-button" id="security-change-password-btn"><i class='bx bxs-key'></i> Change</button>
+                                    </div>
+                                    <p style="margin-top:8px;color:#6b7280;">Ensure your account is using a long, random password to stay secure.</p>
+                                </div>
+                                <div class="security-item">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                                        <div>
+                                            <h3 class="card-title" style="margin:0;">Email Address</h3>
+                                            <div id="email-address" style="color:#6b7280;"><?php echo htmlspecialchars($_SESSION['user_email'] ?? $email); ?></div>
+                                        </div>
+                                        <button class="secondary-button" id="security-change-email-btn"><i class='bx bxs-edit'></i> Change</button>
+                                    </div>
+                                    <p style="margin-top:8px;color:#6b7280;">Your email address is used for account notifications and password resets.</p>
+                                </div>
+                                <div class="security-item">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                                        <div>
+                                            <h3 class="card-title" style="margin:0;">API Access</h3>
+                                            <div id="api-status" style="color:#6b7280;"><span class="badge badge-info">No API key generated</span></div>
+                                        </div>
+                                        <div style="display:flex;gap:10px;">
+                                            <button class="secondary-button" id="security-generate-key-btn"><i class='bx bxs-plus-circle'></i> Generate Key</button>
+                                            <button class="secondary-button" id="security-enable-api-btn"><i class='bx bxs-power-off'></i> Enable</button>
+                                        </div>
+                                    </div>
+                                    <p style="margin-top:8px;color:#6b7280;">API keys allow external applications to access your data. Generate with caution.</p>
+                                </div>
+                                <div class="security-item">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;">
+                                        <div>
+                                            <h3 class="card-title" style="margin:0;">Two-Factor Authentication</h3>
+                                            <div id="tfa-status" style="color:#6b7280;"><span class="badge badge-danger">Disabled</span></div>
+                                        </div>
+                                        <button class="secondary-button" id="security-enable-2fa-btn"><i class='bx bxs-lock-alt'></i> Enable 2FA</button>
+                                    </div>
+                                    <p style="margin-top:8px;color:#6b7280;">Add an extra layer of security to your account by enabling two-factor authentication.</p>
+                                </div>
+                                <div class="danger-zone" style="margin-top:8px;padding:16px;border-radius:12px;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;">
+                                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><i class='bx bxs-error-circle'></i><h3 class="card-title" style="margin:0;">Danger Zone</h3></div>
+                                    <p style="margin-top:4px;color:#b91c1c;">Once you delete your account, there is no going back. Please be certain.</p>
+                                    <button class="secondary-button" id="security-delete-account-btn" style="margin-top:8px;background:#ef4444;color:#fff;border-color:#ef4444;"><i class='bx bxs-trash'></i> Delete Account</button>
                                 </div>
                             </div>
-                            <button class="secondary-button" id="security-change-password-btn">Change</button>
-                        </div>
-                        <div class="settings-item">
-                            <div class="settings-item-left">
-                                <div class="settings-item-icon"><i class='bx bxs-envelope'></i></div>
-                                <div>
-                                    <div class="settings-item-title">Email Address</div>
-                                    <div class="settings-item-desc" id="email-address"><?php echo htmlspecialchars($_SESSION['user_email'] ?? ''); ?></div>
-                                </div>
-                            </div>
-                            <button class="secondary-button" id="security-change-email-btn">Change</button>
-                        </div>
-                        <div class="settings-item">
-                            <div class="settings-item-left">
-                                <div class="settings-item-icon"><i class='bx bxs-key'></i></div>
-                                <div>
-                                    <div class="settings-item-title">API Access</div>
-                                    <div class="settings-item-desc" id="api-status">No API key generated</div>
-                                </div>
-                            </div>
-                            <button class="secondary-button" id="security-generate-key-btn">+ Generate Key</button>
-                        </div>
-                        <div class="settings-item">
-                            <div class="settings-item-left">
-                                <div class="settings-item-icon"><i class='bx bxs-shield'></i></div>
-                                <div>
-                                    <div class="settings-item-title">Two-Factor Authentication</div>
-                                    <div class="settings-item-desc" id="tfa-status"><span class="badge badge-pending">Disabled</span></div>
-                                </div>
-                            </div>
-                            <button class="secondary-button" id="security-enable-2fa-btn">Enable</button>
                         </div>
                     </div>
-                    <div class="settings-danger">
-                        <div class="settings-danger-title"><i class='bx bxs-error'></i> Danger Zone</div>
-                        <div class="settings-item-desc">Once you delete your account, there is no going back. Please be certain.</div>
-                        <div style="margin-top:8px;">
-                            <button class="secondary-button" id="security-delete-account-btn" style="background:#ef4444;color:#fff;border-color:#ef4444;">Delete Account</button>
+                    <div class="right-column">
+                        <div class="card">
+                            <h2 class="card-title">Security Status</h2>
+                            <div style="display:flex;flex-direction:column;gap:8px;">
+                                <div style="display:flex;justify-content:space-between;"><span>Password Strength:</span><span style="font-weight:600;color:#16a34a;">Strong</span></div>
+                                <div style="display:flex;justify-content:space-between;"><span>Account Activity:</span><span style="font-weight:600;color:#16a34a;">Normal</span></div>
+                                <div style="display:flex;justify-content:space-between;"><span>Login Devices:</span><span>1 device</span></div>
+                                <div style="display:flex;justify-content:space-between;"><span>Last Login:</span><span id="last-login-time">Just now</span></div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2 class="card-title">Active Sessions</h2>
+                            <div style="display:flex;align-items:center;gap:12px;">
+                                <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e5e7eb;"><i class='bx bx-desktop'></i></div>
+                                <div style="flex:1;">
+                                    <p style="margin:0;font-weight:600;">Chrome on Windows</p>
+                                    <p style="margin:0;color:#6b7280;">Current session • <?php echo date('M d, Y H:i'); ?></p>
+                                </div>
+                                <button class="secondary-button" style="padding:6px 10px;">End</button>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h2 class="card-title">Security Tips</h2>
+                            <ul style="margin:0;padding-left:18px;color:#374151;">
+                                <li>Use a unique password for this account</li>
+                                <li>Enable two-factor authentication for extra security</li>
+                                <li>Regularly update your password</li>
+                                <li>Log out from devices you don't recognize</li>
+                                <li>Never share your password with anyone</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -2322,7 +2432,7 @@ $stmt = null;
         const avatarPreview = document.getElementById('profile-avatar-preview');
         const headerAvatar = document.querySelector('.user-avatar');
         const profileInputsStyle = document.createElement('style');
-        profileInputsStyle.textContent = '#profile-form .modal-input{font-size:18px;padding:14px 12px;}#profile-form input::placeholder{font-size:18px;opacity:.8;}';
+        profileInputsStyle.textContent = '#profile-form .modal-input{font-size:18px;padding:14px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}#profile-form .modal-textarea{font-size:18px;padding:14px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}#profile-form input::placeholder,#profile-form textarea::placeholder{font-size:16px;color:#6b7280;opacity:.8;}#profile-form input[type=\"date\"]{padding:12px 14px;height:44px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}';
         document.head.appendChild(profileInputsStyle);
         async function loadProfile(){
             try{
@@ -2341,6 +2451,22 @@ $stmt = null;
                         profileForm.elements['contact'].value = p.contact || '';
                         profileForm.elements['address'].value = p.address || '';
                         profileForm.elements['date_of_birth'].value = p.date_of_birth || '';
+                        const fullnameEl = document.getElementById('profile-fullname');
+                        if (fullnameEl){
+                            const fname = String(p.first_name||'').trim();
+                            const mname = String(p.middle_name||'').trim();
+                            const lname = String(p.last_name||'').trim();
+                            fullnameEl.textContent = [fname, mname, lname].filter(Boolean).join(' ');
+                        }
+                        const unameEl = document.getElementById('profile-username');
+                        if (unameEl){ unameEl.textContent = p.username || ''; }
+                        const emailEl = document.getElementById('profile-email');
+                        if (emailEl){ emailEl.textContent = p.email || ''; }
+                        const createdEl = document.getElementById('profile-created');
+                        const updatedEl = document.getElementById('profile-updated');
+                        const fmt = (s)=>{ try{ const d=new Date(s); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}); }catch(_){ return '—'; } };
+                        if (createdEl) createdEl.textContent = fmt(p.created_at);
+                        if (updatedEl) updatedEl.textContent = fmt(p.updated_at);
                     }
                     const url = p.avatar_url ? ('../'+p.avatar_url) : null;
                     if (url){

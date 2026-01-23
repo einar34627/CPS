@@ -399,10 +399,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             <button class="header-button" id="settings-button">
                                 <i class='bx bx-cog' style="font-size: 20px;"></i>
                             </button>
-                            <div class="settings-dropdown-menu" id="settings-dropdown">
-                                <button class="settings-dropdown-item" id="settings-profile-btn">Profile</button>
-                                <button class="settings-dropdown-item" id="settings-security-btn">Security</button>
-                            </div>
                         </div>
                         <div class="user-profile">
                              <img src="<?php echo htmlspecialchars($avatar_path); ?>" alt="User" class="user-avatar">
