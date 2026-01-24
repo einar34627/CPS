@@ -91,6 +91,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit();
             }
         }
+    } elseif ($action === 'submit_tip') {
+        $uid = $_SESSION['user_id'];
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $category = trim($_POST['category'] ?? 'General Information');
+        $priority = trim($_POST['priority'] ?? 'Medium');
+        $location = trim($_POST['location'] ?? '');
+        $contact_info = trim($_POST['contact_info'] ?? '');
+        $is_anonymous = isset($_POST['is_anonymous']) && $_POST['is_anonymous'] === '1' ? 1 : 0;
+        if ($title === '') { $title = 'Anonymous Tip'; }
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS tips (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL,
+                category VARCHAR(100) DEFAULT 'Other',
+                priority VARCHAR(20) DEFAULT 'Medium',
+                status VARCHAR(30) DEFAULT 'pending',
+                location VARCHAR(255) DEFAULT NULL,
+                contact_info VARCHAR(255) DEFAULT NULL,
+                is_anonymous TINYINT(1) DEFAULT 0,
+                submitted_by INT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } catch (Exception $e) {}
+        try {
+            $ins = $pdo->prepare("INSERT INTO tips (title, description, category, priority, location, contact_info, is_anonymous, submitted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $ins->execute([$title, $description, $category !== '' ? $category : 'Other', $priority !== '' ? $priority : 'Medium', $location !== '' ? $location : null, $contact_info !== '' ? $contact_info : null, $is_anonymous, $uid]);
+            echo json_encode(['success'=>true,'id'=>$pdo->lastInsertId()]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false,'error'=>'Failed to submit tip']);
+            exit();
+        }
+    } elseif ($action === 'dm_send') {
+        $uid = $_SESSION['user_id'];
+        $other_id = (int)($_POST['recipient_id'] ?? 0);
+        $message = trim($_POST['message'] ?? '');
+        header('Content-Type: application/json');
+        if ($other_id <= 0 || $message === '') { echo json_encode(['success'=>false, 'error'=>'Invalid parameters']); exit(); }
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS direct_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                recipient_id INT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pair (sender_id, recipient_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } catch (Exception $e) {}
+        try {
+            $ins = $pdo->prepare("INSERT INTO direct_messages (sender_id, recipient_id, message) VALUES (?, ?, ?)");
+            $ins->execute([$uid, $other_id, $message]);
+            echo json_encode(['success'=>true]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false, 'error'=>'Failed to send']);
+            exit();
+        }
+    } elseif ($action === 'dm_list') {
+        $uid = $_SESSION['user_id'];
+        $other_id = (int)($_POST['other_id'] ?? 0);
+        header('Content-Type: application/json');
+        if ($other_id <= 0) { echo json_encode(['success'=>false, 'messages'=>[]]); exit(); }
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS direct_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                recipient_id INT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pair (sender_id, recipient_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        } catch (Exception $e) {}
+        try {
+            $stmt = $pdo->prepare("SELECT id, sender_id, recipient_id, message, created_at FROM direct_messages WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?) ORDER BY created_at ASC, id ASC");
+            $stmt->execute([$uid, $other_id, $other_id, $uid]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['success'=>true, 'messages'=>$rows]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false, 'messages'=>[]]);
+            exit();
+        }
     } elseif ($action === 'submit_complaint') {
         $uid = $_SESSION['user_id'];
         $category = trim($_POST['category'] ?? '');
@@ -291,6 +375,14 @@ if ($user) {
 }
 
 $stmt = null;
+
+// Resolve default Tanod contact
+$tanod_id = 0;
+try {
+    $stmtTanod = $pdo->query("SELECT id FROM users WHERE role = 'TANOD' ORDER BY id ASC LIMIT 1");
+    $rowTanod = $stmtTanod ? $stmtTanod->fetch(PDO::FETCH_ASSOC) : null;
+    if ($rowTanod && isset($rowTanod['id'])) { $tanod_id = (int)$rowTanod['id']; }
+} catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -797,6 +889,7 @@ $stmt = null;
                                 <p class="user-name"><?php echo $full_name; ?></p>
                                 <div id="join-success-bubble" style="display:none;position:absolute;left:0;top:calc(100% + 6px);background:#10b981;color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,0.1);font-weight:600;font-size:12px;">successfully join!</div>
                                 <div id="volunteer-success-bubble" style="display:none;position:absolute;left:0;top:calc(100% + 6px);background:#16a34a;color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,0.1);font-weight:600;font-size:12px;">successfully submit!</div>
+                                <div id="tip-success-bubble" style="display:none;position:absolute;left:0;top:calc(100% + 6px);background:#6366f1;color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,0.1);font-weight:600;font-size:12px;">successfully submit a tip!</div>
                                 <p class="user-email"><?php echo $role; ?></p>
                           </div>
                         </div>
@@ -1449,7 +1542,7 @@ $stmt = null;
                         <div class="card" style="height:100%;">
                             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0 12px;">
                                 <div>
-                                    <h2 class="card-title" id="messages-chat-title">Admin</h2>
+                                    <h2 class="card-title" id="messages-chat-title">Tanod</h2>
                                     <div id="messages-chat-status" style="font-size:14px;color:#10b981;">Online</div>
                                 </div>
                                 <div style="display:flex;gap:10px;color:#6b7280;">
@@ -2646,6 +2739,9 @@ $stmt = null;
         const messagesSendBtn = document.getElementById('messages-send-btn');
         const messagesChatTitle = document.getElementById('messages-chat-title');
         const messagesChatStatus = document.getElementById('messages-chat-status');
+        const tipSuccessBubble = document.getElementById('tip-success-bubble');
+        const currentUserId = <?php echo (int)$user_id; ?>;
+        const dmTanodId = <?php echo (int)$tanod_id; ?>;
         
         // New variables for Profile & Security
         const settingsProfileSection = document.getElementById('settings-profile-section');
@@ -2668,8 +2764,8 @@ $stmt = null;
         const profileAvatar = document.getElementById('profile-avatar');
         const sessionEndBtn = document.querySelector('.session-end-btn');
         
-        let selectedContactId = 'admin';
-        const anonContacts = [{id:'admin', name:'Admin', online:true}];
+        let selectedContactId = String(dmTanodId || 0);
+        const anonContacts = [{id:String(dmTanodId || 0), name:'Tanod', online:true}];
         
         function hideSubmoduleSections(){
             if (volunteerSection) volunteerSection.style.display = 'none';
@@ -2908,19 +3004,23 @@ $stmt = null;
         function closeAnonymousTipModal(){
             if (anonymousTipModal) anonymousTipModal.style.display = 'none';
         }
-        function getAnonMessages(){
-            let store;
-            try { store = JSON.parse(localStorage.getItem('anonymous_messages') || '{}'); } catch(e){ store = {}; }
-            if (!store[selectedContactId]) {
-                store[selectedContactId] = [
-                    {id:'M-'+(Date.now()-600000), from:'admin', text:'Hello, how can we assist you?', time:Date.now()-600000}
-                ];
-                localStorage.setItem('anonymous_messages', JSON.stringify(store));
+        async function loadDmMessages(){
+            try{
+                const fd = new FormData();
+                fd.append('action','dm_list');
+                fd.append('other_id', selectedContactId);
+                const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                const rows = (data && data.success && Array.isArray(data.messages)) ? data.messages : [];
+                return rows.map(r => ({
+                    id: r.id,
+                    from: (parseInt(r.sender_id,10) === currentUserId) ? 'user' : 'tanod',
+                    text: r.message,
+                    time: new Date(r.created_at).getTime()
+                }));
+            }catch(_){
+                return [];
             }
-            return store;
-        }
-        function saveAnonMessages(store){
-            localStorage.setItem('anonymous_messages', JSON.stringify(store));
         }
         function renderAnonContacts(){
             if (!messagesContactList) return;
@@ -2966,11 +3066,10 @@ $stmt = null;
                 messagesContactList.appendChild(row);
             });
         }
-        function renderAnonChat(){
+        async function renderAnonChat(){
             if (!messagesChat) return;
             messagesChat.innerHTML = '';
-            const store = getAnonMessages();
-            const msgs = store[selectedContactId] || [];
+            const msgs = await loadDmMessages();
             msgs.forEach(m=>{
                 const wrap = document.createElement('div');
                 wrap.style.display = 'flex';
@@ -2988,26 +3087,12 @@ $stmt = null;
                 meta.style.color = '#6b7280';
                 meta.style.margin = '0 12px';
                 meta.textContent = new Date(m.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-                const del = document.createElement('a');
-                del.href = '#';
-                del.textContent = 'Delete';
-                del.style.color = '#ef4444';
-                del.style.fontSize = '12px';
-                del.style.marginLeft = '6px';
-                del.addEventListener('click', function(e){
-                    e.preventDefault();
-                    const s = getAnonMessages();
-                    s[selectedContactId] = (s[selectedContactId] || []).filter(x=>x.id !== m.id);
-                    saveAnonMessages(s);
-                    renderAnonChat();
-                });
                 const row = document.createElement('div');
                 row.style.display = 'flex';
                 row.style.alignItems = 'center';
                 row.style.justifyContent = m.from === 'user' ? 'flex-end' : 'flex-start';
                 row.appendChild(bubble);
                 row.appendChild(meta);
-                row.appendChild(del);
                 wrap.appendChild(row);
                 messagesChat.appendChild(wrap);
             });
@@ -3016,23 +3101,21 @@ $stmt = null;
         function sendAnonMessage(){
             const text = messagesInput ? messagesInput.value.trim() : '';
             if (!text) return;
-            const store = getAnonMessages();
-            const list = store[selectedContactId] || [];
-            const now = Date.now();
-            list.push({id:'M-'+now, from:'user', text:text, time:now});
-            store[selectedContactId] = list;
-            saveAnonMessages(store);
-            if (messagesInput) messagesInput.value = '';
-            renderAnonChat();
-            setTimeout(()=>{
-                const s = getAnonMessages();
-                const arr = s[selectedContactId] || [];
-                const t = Date.now();
-                arr.push({id:'M-'+t, from:'admin', text:'Received. We will review.', time:t});
-                s[selectedContactId] = arr;
-                saveAnonMessages(s);
-                renderAnonChat();
-            }, 900);
+            const fd = new FormData();
+            fd.append('action','dm_send');
+            fd.append('recipient_id', selectedContactId);
+            fd.append('message', text);
+            fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' })
+                .then(r=>r.json())
+                .then(d=>{
+                    if (d && d.success) {
+                        if (messagesInput) messagesInput.value = '';
+                        renderAnonChat();
+                    } else {
+                        alert('Failed to send message.');
+                    }
+                })
+                .catch(()=>{ alert('Failed to send message.'); });
         }
         function showDashboard(){
             hideSubmoduleSections();
@@ -3511,6 +3594,10 @@ $stmt = null;
                 sendAnonMessage();
             });
         }
+        // Initial render and real-time polling
+        renderAnonContacts();
+        renderAnonChat();
+        setInterval(()=>{ renderAnonChat(); }, 2000);
         if (suspiciousForm){
             if (incidentTypeSelect && incidentOtherField){
                 incidentTypeSelect.addEventListener('change', function(){
@@ -3696,21 +3783,29 @@ $stmt = null;
                 const subjectEl = document.getElementById('tip_subject');
                 const descEl = document.getElementById('tip_description');
                 const locEl = document.getElementById('tip_location');
-                const photoEl = document.getElementById('tip_photo');
-                const videoEl = document.getElementById('tip_video');
-                const id = 'T-' + Date.now();
-                let items = [];
-                try { items = JSON.parse(localStorage.getItem('anonymous_tips') || '[]'); } catch(e){ items = []; }
-                items.push({
-                    id,
-                    subject: subjectEl ? subjectEl.value : '',
-                    description: descEl ? descEl.value : '',
-                    location: locEl ? locEl.value : '',
-                    photoName: (photoEl && photoEl.files && photoEl.files[0]) ? photoEl.files[0].name : '',
-                    videoName: (videoEl && videoEl.files && videoEl.files[0]) ? videoEl.files[0].name : ''
-                });
-                localStorage.setItem('anonymous_tips', JSON.stringify(items));
-                closeAnonymousTipModal();
+                const formData = new FormData();
+                formData.append('action','submit_tip');
+                formData.append('title', subjectEl ? subjectEl.value : 'Anonymous Tip');
+                formData.append('description', descEl ? descEl.value : '');
+                formData.append('category','General Information');
+                formData.append('priority','Medium');
+                formData.append('location', locEl ? locEl.value : '');
+                formData.append('contact_info','');
+                formData.append('is_anonymous','0');
+                fetch(window.location.href, { method:'POST', body: formData })
+                    .then(r=>r.json())
+                    .then(d=>{
+                        if (d && d.success) {
+                            if (tipSuccessBubble) {
+                                tipSuccessBubble.style.display = 'block';
+                                setTimeout(()=>{ tipSuccessBubble.style.display = 'none'; }, 4000);
+                            }
+                            closeAnonymousTipModal();
+                        } else {
+                            alert('Failed to submit tip. Please try again.');
+                        }
+                    })
+                    .catch(()=>{ alert('Failed to submit tip. Please try again.'); });
             });
         }
         if (eventFeedbackLink){
