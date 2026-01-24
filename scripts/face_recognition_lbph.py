@@ -1,246 +1,255 @@
+# file: setup_face_recognition.py
+#!/usr/bin/env python3
+"""
+Setup script for Face Recognition System
+Run this first to install dependencies and set up the system
+"""
+
 import os
 import sys
-import time
-import cv2
-import numpy as np
-import argparse
-def ensure_lbph():
+import subprocess
+import platform
+
+def check_python_version():
+    """Check Python version"""
+    print("Checking Python version...")
+    if sys.version_info < (3, 6):
+        print(f"ERROR: Python 3.6+ required. You have {sys.version}")
+        return False
+    print(f"✓ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    return True
+
+def install_dependencies():
+    """Install required Python packages"""
+    print("\nInstalling dependencies...")
+    
+    packages = [
+        "opencv-python",
+        "opencv-contrib-python",
+        "numpy",
+        "pillow"
+    ]
+    
     try:
-        return cv2.face.LBPHFaceRecognizer_create()
-    except Exception:
-        print("LBPHFaceRecognizer not available. Install opencv-contrib-python.")
-        sys.exit(1)
-def get_cascade():
-    p = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
-    if not os.path.exists(p):
-        print("Haar cascade not found.")
-        sys.exit(1)
-    return cv2.CascadeClassifier(p)
-def get_cascades():
-    base = cv2.data.haarcascades
-    pf = os.path.join(base, "haarcascade_profileface.xml")
-    ef = os.path.join(base, "haarcascade_eye.xml")
-    if not os.path.exists(pf) or not os.path.exists(ef):
-        print("Required cascades missing.")
-        sys.exit(1)
-    return {
-        'frontal': cv2.CascadeClassifier(os.path.join(base, "haarcascade_frontalface_default.xml")),
-        'profile': cv2.CascadeClassifier(pf),
-        'eye': cv2.CascadeClassifier(ef)
-    }
-def normalize_gray(g):
-    m = float(np.mean(g))
-    if m < 90 or m > 160:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        g = clahe.apply(g)
-    return g
-def blur_metric(g):
-    return float(cv2.Laplacian(g, cv2.CV_64F).var())
-def detect_faces_fallback(g, cascades):
-    r = cascades['frontal'].detectMultiScale(g, 1.15, 5)
-    if len(r) == 0:
-        r = cascades['profile'].detectMultiScale(g, 1.15, 5)
-    if len(r) == 0:
-        eyes = cascades['eye'].detectMultiScale(g, 1.15, 5)
-        if len(eyes) >= 2:
-            eyes = sorted(eyes, key=lambda e: e[0])
-            exl, eyl, ewl, ehl = eyes[0]
-            exr, eyr, ewr, ehr = eyes[-1]
-            clx = int(exl + ewl * 0.5)
-            cly = int(eyl + ehl * 0.5)
-            crx = int(exr + ewr * 0.5)
-            cry = int(eyr + ehr * 0.5)
-            dx = crx - clx
-            dy = cry - cly
-            dist = int(np.sqrt(dx*dx + dy*dy))
-            cx = (clx + crx) // 2
-            cy = (cly + cry) // 2
-            w = int(dist * 2.2)
-            h = int(dist * 2.7)
-            x = max(0, cx - w // 2)
-            y = max(0, cy - int(h * 0.35))
-            x2 = min(g.shape[1], x + w)
-            y2 = min(g.shape[0], y + h)
-            r = np.array([[x, y, x2 - x, y2 - y]])
-        else:
-            r = []
-    return r
-def align_face(g, rect, eye_cascade):
-    x, y, w, h = rect
-    roi = g[y:y+h, x:x+w]
-    eyes = eye_cascade.detectMultiScale(roi, 1.15, 5)
-    left = None
-    right = None
-    for (ex, ey, ew, eh) in eyes:
-        cx = ex + ew * 0.5
-        cy = ey + eh * 0.5
-        if left is None or cx < left[0]:
-            left = (cx, cy)
-        if right is None or cx > right[0]:
-            right = (cx, cy)
-    if left and right:
-        dx = right[0] - left[0]
-        dy = right[1] - left[1]
-        angle = np.degrees(np.arctan2(dy, dx))
-        M = cv2.getRotationMatrix2D((w * 0.5, h * 0.5), angle, 1.0)
-        roi = cv2.warpAffine(roi, M, (w, h), flags=cv2.INTER_LINEAR)
-    return roi
-def dataset_diagnostics(root):
-    stats = {'persons': [], 'counts': {}, 'total': 0}
-    if not os.path.isdir(root):
-        return stats
-    names = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
-    names.sort()
-    stats['persons'] = names
-    for n in names:
-        d = os.path.join(root, n)
-        files = [f for f in os.listdir(d) if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))]
-        stats['counts'][n] = len(files)
-        stats['total'] += len(files)
-    return stats
-def save_training_image(person, img, base_dir):
-    if not person:
-        person = "unknown"
-    d = os.path.join(base_dir, person)
-    if not os.path.isdir(d):
-        os.makedirs(d, exist_ok=True)
-    name = "train_" + time.strftime("%Y%m%d_%H%M%S") + "_" + bin2hex(4) + ".jpg"
-    path = os.path.join(d, name)
-    cv2.imwrite(path, img)
-    return path
-def bin2hex(n):
-    return os.urandom(n).hex()
-def load_dataset(root):
-    if not os.path.isdir(root):
-        print("Dataset folder missing:", root)
-        sys.exit(1)
-    names = [d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
-    if not names:
-        print("Dataset has no person folders.")
-        sys.exit(1)
-    names.sort()
-    name_to_id = {n: i for i, n in enumerate(names)}
-    faces = []
-    labels = []
-    cascades = get_cascades()
-    for n in names:
-        d = os.path.join(root, n)
-        files = [f for f in os.listdir(d) if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))]
-        for f in files:
-            p = os.path.join(d, f)
-            img = cv2.imread(p)
-            if img is None:
-                continue
-            g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            g = normalize_gray(g)
-            rects = detect_faces_fallback(g, cascades)
-            if len(rects) == 0:
-                continue
-            r = max(rects, key=lambda x: x[2]*x[3])
-            x, y, w, h = r
-            roi = align_face(g, (x, y, w, h), cascades['eye'])
-            roi = cv2.resize(roi, (200, 200))
-            faces.append(roi)
-            labels.append(name_to_id[n])
-    if not faces:
-        print("No faces detected in dataset.")
-        sys.exit(1)
-    return faces, np.array(labels, dtype=np.int32), {v: k for k, v in name_to_id.items()}
-def train_and_save(dataset_dir, model_path):
-    r = ensure_lbph()
-    faces, labels, id_to_name = load_dataset(dataset_dir)
-    r.train(faces, labels)
-    r.write(model_path)
-    return r, id_to_name
-def run_webcam(recognizer, id_to_name, dataset_dir, person):
-    cascades = get_cascades()
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap or not cap.isOpened():
-        print("Camera not available.")
-        sys.exit(1)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cam_ok = True
-    fps_est = 0.0
-    t0 = time.time()
-    frames = 0
-    ds = dataset_diagnostics(dataset_dir)
-    target_person = person or (ds['persons'][0] if ds['persons'] else '')
-    train_count = ds['counts'].get(target_person, 0)
-    train_target = 15
-    name_to_id = {v: k for k, v in id_to_name.items()}
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            cam_ok = False
-            break
-        frames += 1
-        g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        g = normalize_gray(g)
-        bmean = float(np.mean(g))
-        blur = blur_metric(g)
-        rects = detect_faces_fallback(g, cascades)
-        faces_detected = len(rects)
-        recognized = False
-        conf_disp = 0
-        for (x, y, w, h) in rects:
-            roi = align_face(g, (x, y, w, h), cascades['eye'])
-            roi = cv2.resize(roi, (200, 200))
-            label, dist = recognizer.predict(roi)
-            name = id_to_name.get(label, "Unknown")
-            conf_disp = max(0, min(100, int(100 - dist)))
-            th = 60
-            if blur < 80:
-                th += 15
-            if bmean < 70 or bmean > 180:
-                th += 10
-            recognized = dist < th
-            color = (0, 200, 0) if recognized else (37, 99, 235)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-            cv2.putText(frame, f"{name} {conf_disp}%", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        dt = time.time() - t0
-        if dt > 0:
-            fps_est = frames / dt
-        hgt, wdt = frame.shape[:2]
-        line1 = f"[{'√' if cam_ok else ' '}] Camera: {wdt}x{hgt} @ {int(fps_est)} FPS"
-        line2 = f"[{'√' if faces_detected>0 else ' '}] Faces detected: {faces_detected}"
-        line3 = f"[{'√' if recognized else ' '}] Face recognized: {'Yes' if recognized else 'No'} (confidence: {conf_disp})"
-        line4 = f"Training data: {train_count} images for '{target_person or '—'}'"
-        y0 = 24
-        for i, t in enumerate([line1, line2, line3, line4]):
-            cv2.putText(frame, t, (12, y0 + i*22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA)
-        cv2.imshow("LBPH Diagnostic", frame)
-        k = cv2.waitKey(1) & 0xFF
-        if k == ord('q'):
-            break
-        if k == ord('t'):
-            if faces_detected > 0:
-                x, y, w, h = rects[0]
-                roi = align_face(g, (x, y, w, h), cascades['eye'])
-                roi = cv2.resize(roi, (200, 200))
-                person_name = target_person or 'unknown'
-                path = save_training_image(person_name, roi, dataset_dir)
-                train_count += 1
-                label_to_update = name_to_id.get(person_name, 0)
-                try:
-                    recognizer.update([roi], np.array([label_to_update], dtype=np.int32))
-                except Exception:
-                    pass
-                cv2.putText(frame, f"Training image captured: {train_count}/{train_target}", (12, y0 + 5*22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-        time.sleep(0.001)
-    cap.release()
-    cv2.destroyAllWindows()
+        for package in packages:
+            print(f"Installing {package}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        print("✓ All dependencies installed successfully!")
+        return True
+    except Exception as e:
+        print(f"ERROR: Failed to install dependencies: {e}")
+        return False
+
+def create_directories():
+    """Create necessary directories"""
+    print("\nCreating directories...")
+    
+    dirs = [
+        "dataset",
+        "models",
+        "training_images",
+        "exports"
+    ]
+    
+    for dir_name in dirs:
+        os.makedirs(dir_name, exist_ok=True)
+        print(f"✓ Created: {dir_name}/")
+    
+    return True
+
+def download_cascade_files():
+    """Download Haar cascade files if missing"""
+    print("\nChecking for cascade files...")
+    
+    import cv2
+    cascade_path = cv2.data.haarcascades
+    
+    if not os.path.exists(cascade_path):
+        print("WARNING: Cascade files not found!")
+        print("Download from: https://github.com/opencv/opencv/tree/master/data/haarcascades")
+        print("Place in: C:/opencv/data/haarcascades/ (Windows) or similar")
+        return False
+    
+    print(f"✓ Cascade files found at: {cascade_path}")
+    return True
+
+def create_sample_dataset():
+    """Create a sample dataset structure"""
+    print("\nCreating sample dataset structure...")
+    
+    sample_structure = """
+dataset/
+├── John_Doe/
+│   ├── john_001.jpg
+│   ├── john_002.jpg
+│   └── john_003.jpg
+├── Jane_Smith/
+│   ├── jane_001.jpg
+│   └── jane_002.jpg
+└── README.txt
+    """
+    
+    readme_path = os.path.join("dataset", "README.txt")
+    with open(readme_path, "w") as f:
+        f.write("FACE RECOGNITION DATASET\n")
+        f.write("=" * 40 + "\n")
+        f.write("Place face images in folders named after each person.\n")
+        f.write("Each folder should contain 10-20 images of that person.\n")
+        f.write("Images should show the face clearly in different conditions.\n")
+        f.write("\nRecommended image format: .jpg, 200x200 pixels, grayscale\n")
+    
+    print("✓ Sample structure created")
+    print(sample_structure)
+    return True
+
+def create_batch_files():
+    """Create batch files for easy execution"""
+    print("\nCreating batch files...")
+    
+    # Windows batch file
+    if platform.system() == "Windows":
+        batch_content = """@echo off
+echo ========================================
+echo FACE RECOGNITION SYSTEM
+echo ========================================
+echo.
+echo Options:
+echo 1. Interactive Menu
+echo 2. Train Model
+echo 3. Run Recognition
+echo 4. Register New Person
+echo.
+set /p choice="Enter choice (1-4): "
+
+if "%choice%"=="1" (
+    python face_recognition_lbph.py --interactive
+) else if "%choice%"=="2" (
+    python face_recognition_lbph.py --train
+) else if "%choice%"=="3" (
+    python face_recognition_lbph.py --recognize
+) else if "%choice%"=="4" (
+    set /p name="Enter person's name: "
+    python face_recognition_lbph.py --register "%name%"
+) else (
+    echo Invalid choice!
+)
+
+pause
+"""
+        
+        with open("face_recognition.bat", "w") as f:
+            f.write(batch_content)
+        print("✓ Created: face_recognition.bat")
+    
+    # Linux/Mac bash script
+    bash_content = """#!/bin/bash
+echo "========================================"
+echo "FACE RECOGNITION SYSTEM"
+echo "========================================"
+echo ""
+echo "Options:"
+echo "1. Interactive Menu"
+echo "2. Train Model"
+echo "3. Run Recognition"
+echo "4. Register New Person"
+echo ""
+read -p "Enter choice (1-4): " choice
+
+case $choice in
+    1)
+        python3 face_recognition_lbph.py --interactive
+        ;;
+    2)
+        python3 face_recognition_lbph.py --train
+        ;;
+    3)
+        python3 face_recognition_lbph.py --recognize
+        ;;
+    4)
+        read -p "Enter person's name: " name
+        python3 face_recognition_lbph.py --register "$name"
+        ;;
+    *)
+        echo "Invalid choice!"
+        ;;
+esac
+"""
+    
+    with open("face_recognition.sh", "w") as f:
+        f.write(bash_content)
+    
+    # Make executable on Unix-like systems
+    if platform.system() != "Windows":
+        os.chmod("face_recognition.sh", 0o755)
+    
+    print("✓ Created: face_recognition.sh")
+    return True
+
+def print_usage_instructions():
+    """Print usage instructions"""
+    print("\n" + "="*60)
+    print("SETUP COMPLETE!")
+    print("="*60)
+    print("\nUSAGE INSTRUCTIONS:")
+    print("-" * 40)
+    print("1. INTERACTIVE MENU (Recommended):")
+    print("   python face_recognition_lbph.py --interactive")
+    print("\n2. REGISTER A NEW PERSON:")
+    print("   python face_recognition_lbph.py --register \"Your Name\"")
+    print("\n3. TRAIN MODEL:")
+    print("   python face_recognition_lbph.py --train")
+    print("\n4. RUN RECOGNITION:")
+    print("   python face_recognition_lbph.py --recognize")
+    print("\n5. QUICK SETUP (All-in-one):")
+    print("   python face_recognition_lbph.py")
+    print("\n" + "="*60)
+    print("NEXT STEPS:")
+    print("-" * 40)
+    print("1. Run the interactive menu to get started")
+    print("2. Register yourself using option 1")
+    print("3. Capture 15-20 images of your face")
+    print("4. Train the model")
+    print("5. Start recognition!")
+    print("="*60)
+
 def main():
-    base = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--train-only', action='store_true')
-    parser.add_argument('--dataset', default=os.path.join(base, "dataset"))
-    parser.add_argument('--model', default=os.path.join(base, "face_recognizer.yml"))
-    parser.add_argument('--person', default='')
-    args = parser.parse_args()
-    r, id_to_name = train_and_save(args.dataset, args.model)
-    if args.train_only:
-        print("TRAINED " + str(len(id_to_name)))
-        return
-    run_webcam(r, id_to_name, args.dataset, args.person)
+    """Main setup function"""
+    print("="*60)
+    print("FACE RECOGNITION SYSTEM SETUP")
+    print("="*60)
+    
+    steps = [
+        ("Python Version Check", check_python_version),
+        ("Install Dependencies", install_dependencies),
+        ("Create Directories", create_directories),
+        ("Check Cascade Files", download_cascade_files),
+        ("Create Sample Dataset", create_sample_dataset),
+        ("Create Batch Files", create_batch_files),
+    ]
+    
+    success = True
+    for step_name, step_func in steps:
+        print(f"\n[{step_name}]")
+        if not step_func():
+            success = False
+            print(f"⚠ {step_name} failed!")
+            break
+    
+    if success:
+        print_usage_instructions()
+        print("\nSetup completed successfully!")
+    else:
+        print("\n⚠ Setup completed with some errors.")
+        print("Please fix the issues above and try again.")
+    
+    return success
+
 if __name__ == "__main__":
-    main()
+    try:
+        if main():
+            sys.exit(0)
+        else:
+            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n\nSetup cancelled by user.")
+        sys.exit(1)
