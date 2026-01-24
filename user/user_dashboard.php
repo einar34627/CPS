@@ -323,6 +323,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success'=>false,'error'=>'Failed to register for event']);
             exit();
         }
+    } elseif ($action === 'event_feedback_submit') {
+        $uid = $_SESSION['user_id'];
+        $name = trim($_POST['name'] ?? '');
+        $contact = trim($_POST['contact'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $event = trim($_POST['event'] ?? '');
+        $rating = trim($_POST['rating'] ?? '');
+        $comments = trim($_POST['comments'] ?? '');
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS event_feedbacks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT DEFAULT NULL,
+                name VARCHAR(255) DEFAULT NULL,
+                contact VARCHAR(50) DEFAULT NULL,
+                email VARCHAR(255) DEFAULT NULL,
+                event VARCHAR(255) DEFAULT NULL,
+                rating VARCHAR(20) DEFAULT NULL,
+                comments TEXT DEFAULT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )");
+        } catch (Exception $e) {}
+        try {
+            $stmt = $pdo->prepare("INSERT INTO event_feedbacks (user_id, name, contact, email, event, rating, comments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+            $stmt->execute([
+                $uid,
+                ($name !== '' ? $name : null),
+                ($contact !== '' ? $contact : null),
+                ($email !== '' ? $email : null),
+                ($event !== '' ? $event : null),
+                ($rating !== '' ? $rating : null),
+                ($comments !== '' ? $comments : null)
+            ]);
+            echo json_encode(['success'=>true,'id'=>$pdo->lastInsertId()]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false,'error'=>'Failed to submit feedback']);
+            exit();
+        }
     } elseif ($action === 'complaint_list') {
         $uid = $_SESSION['user_id'];
         try {
@@ -335,6 +373,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success'=>false,'complaints'=>[]]);
             exit();
         }
+    } elseif ($action === 'commonwealth_id_upload') {
+        $uid = $_SESSION['user_id'];
+        if (!isset($_FILES['photo']) || ($_FILES['photo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            echo json_encode(['success'=>false,'error'=>'no_file']);
+            exit();
+        }
+        $name = '';
+        try {
+            $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name FROM users WHERE id = ?");
+            $stmt->execute([$uid]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $name = trim(($row['first_name'] ?? '').' '.($row['middle_name'] ?? '').' '.($row['last_name'] ?? ''));
+            }
+        } catch (Exception $e) {}
+        if ($name === '') { $name = 'user_'.$uid; }
+        $safe = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $name));
+        $root = dirname(__DIR__);
+        $dir = $root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'dataset' . DIRECTORY_SEPARATOR . $safe;
+        if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+        $type = @mime_content_type($_FILES['photo']['tmp_name']);
+        $ext = 'jpg';
+        if ($type === 'image/png') $ext = 'png';
+        elseif ($type === 'image/webp') $ext = 'webp';
+        $fname = 'img_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $dest = $dir . DIRECTORY_SEPARATOR . $fname;
+        if (!move_uploaded_file($_FILES['photo']['tmp_name'], $dest)) {
+            echo json_encode(['success'=>false,'error'=>'save_failed']);
+            exit();
+        }
+        $rel = 'scripts/dataset/'.$safe.'/'.$fname;
+        $trained = false;
+        try {
+            $script = $root . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'face_recognition_lbph.py';
+            $cmds = [
+                'python "' . $script . '" --train-only',
+                'py "' . $script . '" --train-only'
+            ];
+            foreach ($cmds as $cmd) {
+                $out = @shell_exec($cmd . ' 2>&1');
+                if (is_string($out) && strpos($out, 'TRAINED') !== false) { $trained = true; break; }
+            }
+        } catch (Exception $e) { $trained = false; }
+        echo json_encode(['success'=>true,'path'=>$rel,'person'=>$safe,'trained'=>$trained]);
+        exit();
     }
 }
 
@@ -1110,26 +1193,12 @@ try {
                    
                     <div class="right-column">
                         <div class="card">
-                            <h2 class="card-title">Emergency Alerts</h2>
-                            <div class="alert-card">
-                                <h3 class="alert-title">High Fire Risk - Northwest District</h3>
-                                <p class="alert-time">Issued: Today 10:30 AM | Expires: Tomorrow 6:00 PM</p>
-                                <button class="alert-button">
-                                    <svg class="button-icon" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4z"></path>
-                                    </svg>
-                                    View Details
-                                </button>
-                            </div>
-                            <div class="alert-card">
-                                <h3 class="alert-title">Hydrant Maintenance - Central Area</h3>
-                                <p class="alert-time">Schedule: Tomorrow 8 AM - 4 PM | 15 hydrants affected</p>
-                                <button class="alert-button">
-                                    <svg class="button-icon" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4z"></path>
-                                    </svg>
-                                    View Map
-                                </button>
+                            <h2 class="card-title">Commonwealth ID</h2>
+                            <div style="display:flex;align-items:center;justify-content:center;padding:40px 20px;">
+                                <div style="text-align:center;width:100%;">
+                                    <div style="font-weight:700;font-size:18px;color:#374151;letter-spacing:.5px;">Would you like to have a Commonwealth ID?</div>
+                                    <button id="commonwealth-id-open-btn" style="margin-top:16px;background:linear-gradient(90deg,#a855f7,#d946ef);color:#fff;border:none;padding:12px 20px;border-radius:10px;box-shadow:0 8px 20px rgba(168,85,247,.3);cursor:pointer;">Get Now!</button>
+                                </div>
                             </div>
                         </div>
                         
@@ -2456,6 +2525,59 @@ try {
         </div>
     </div>
     
+    <div id="commonwealth-id-modal" class="modal-overlay" style="display:none;">
+        <div class="card modal-card">
+            <div class="card-content" style="padding:20px;">
+                <div class="modal-header">
+                    <h2 class="card-title">Get Commonwealth ID</h2>
+                    <button class="secondary-button" id="commonwealth-id-close">Close</button>
+                </div>
+                <form id="commonwealth-id-form">
+                    <div class="modal-body">
+                        <div class="modal-step full" style="margin-bottom:8px;">
+                            <label>Full Name</label>
+                            <input class="modal-input" type="text" value="<?php echo $full_name; ?>" disabled>
+                        </div>
+                        <div class="modal-step full" style="margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <label>Username</label>
+                                <input class="modal-input" type="text" value="<?php echo $username; ?>" disabled>
+                            </div>
+                            <div>
+                                <label>Contact</label>
+                                <input class="modal-input" type="tel" value="<?php echo $contact; ?>" disabled>
+                            </div>
+                        </div>
+                        <div class="modal-step full" style="margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <label>Email</label>
+                                <input class="modal-input" type="email" value="<?php echo $email; ?>" disabled>
+                            </div>
+                            <div>
+                                <label>Date of Birth</label>
+                                <input class="modal-input" type="date" value="<?php echo $date_of_birth; ?>" disabled>
+                            </div>
+                        </div>
+                        <div class="modal-step full" style="margin-bottom:8px;">
+                            <label>Address</label>
+                            <input class="modal-input" type="text" value="<?php echo $address; ?>" disabled>
+                        </div>
+                        <div class="modal-step full" style="margin-bottom:8px;">
+                            <input id="commonwealth-photo" class="modal-input" type="file" accept="image/*">
+                            <div style="margin-top:12px;padding:12px;border-radius:12px;background:linear-gradient(180deg,#FFFFC5,#FFFFFF);color:#111;">
+                                Note: the image you uploaded to get a commonwealth ID will be used for facial recognition for the security of our area but getting an ID is not mandatory, thank you very much for your understanding!
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-button" id="commonwealth-id-cancel">Cancel</button>
+                        <button type="button" class="secondary-button" id="commonwealth-id-submit">Submit</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
     <div id="anonymous-tip-modal" class="modal-overlay">
         <div class="card modal-card">
             <div class="card-content" style="padding:20px;">
@@ -2742,6 +2864,12 @@ try {
         const tipSuccessBubble = document.getElementById('tip-success-bubble');
         const currentUserId = <?php echo (int)$user_id; ?>;
         const dmTanodId = <?php echo (int)$tanod_id; ?>;
+        const commonwealthOpenBtn = document.getElementById('commonwealth-id-open-btn');
+        const commonwealthModal = document.getElementById('commonwealth-id-modal');
+        const commonwealthClose = document.getElementById('commonwealth-id-close');
+        const commonwealthCancel = document.getElementById('commonwealth-id-cancel');
+        const commonwealthSubmit = document.getElementById('commonwealth-id-submit');
+        const commonwealthPhoto = document.getElementById('commonwealth-photo');
         
         // New variables for Profile & Security
         const settingsProfileSection = document.getElementById('settings-profile-section');
@@ -2927,6 +3055,14 @@ try {
             if (eventFeedbackSection) eventFeedbackSection.style.display = 'block';
             renderEventFeedbacks();
         }
+        function openCommonwealthIdModal(){
+            if (commonwealthModal) commonwealthModal.style.display = 'flex';
+            document.querySelectorAll('#commonwealth-id-modal .modal-step').forEach(el=>el.classList.add('active'));
+        }
+        function closeCommonwealthIdModal(){
+            if (commonwealthModal) commonwealthModal.style.display = 'none';
+            if (commonwealthPhoto) commonwealthPhoto.value = '';
+        }
         function renderWatchSchedule(){
             const joined = localStorage.getItem('watch_group_joined') === 'true';
             if (!watchScheduleTbody) return;
@@ -3004,6 +3140,40 @@ try {
         function closeAnonymousTipModal(){
             if (anonymousTipModal) anonymousTipModal.style.display = 'none';
         }
+        if (commonwealthOpenBtn) commonwealthOpenBtn.addEventListener('click', openCommonwealthIdModal);
+        if (commonwealthClose) commonwealthClose.addEventListener('click', closeCommonwealthIdModal);
+        if (commonwealthCancel) commonwealthCancel.addEventListener('click', closeCommonwealthIdModal);
+        if (commonwealthSubmit) commonwealthSubmit.addEventListener('click', async function(){
+            if (!commonwealthPhoto || !commonwealthPhoto.files || commonwealthPhoto.files.length === 0){
+                alert('Please select an image.');
+                return;
+            }
+            if (commonwealthPhoto.files.length > 1){
+                alert('Please upload only one image.');
+                return;
+            }
+            const file = commonwealthPhoto.files[0];
+            if (!file.type || !file.type.startsWith('image/')){
+                alert('Please select an image file.');
+                return;
+            }
+            try{
+                const fd = new FormData();
+                fd.append('action','commonwealth_id_upload');
+                fd.append('photo', file);
+                const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                if (data && data.success){
+                    const msg = data.trained ? 'Thank you! Your photo has been uploaded and the recognizer was updated.' : 'Thank you! Your photo has been uploaded.';
+                    alert(msg);
+                    closeCommonwealthIdModal();
+                }else{
+                    alert('Upload failed.');
+                }
+            }catch(_){
+                alert('Upload failed.');
+            }
+        });
         async function loadDmMessages(){
             try{
                 const fd = new FormData();
@@ -3841,14 +4011,20 @@ try {
         if (eventFeedbackForm){
             eventFeedbackForm.addEventListener('submit', function(e){
                 e.preventDefault();
-                const nameEl = document.getElementById('ef_fullname');
+                const nameEl = document.getElementById('ef_fullname') || document.getElementById('ef_name');
                 const contactEl = document.getElementById('ef_contact');
                 const emailEl = document.getElementById('ef_email');
                 const eventEl = document.getElementById('ef_event');
-                const rating = document.getElementById('ef_rate_excellent')?.checked ? 'Excellent' :
-                               document.getElementById('ef_rate_good')?.checked ? 'Good' :
-                               document.getElementById('ef_rate_fair')?.checked ? 'Fair' :
-                               document.getElementById('ef_rate_poor')?.checked ? 'Poor' : '';
+                let rating = '';
+                if (document.getElementById('ef_rate_excellent')?.checked) rating = 'Excellent';
+                else if (document.getElementById('ef_rate_good')?.checked) rating = 'Good';
+                else if (document.getElementById('ef_rate_fair')?.checked) rating = 'Fair';
+                else if (document.getElementById('ef_rate_poor')?.checked) rating = 'Poor';
+                else if (document.getElementById('ef_q1_5')?.checked) rating = 'Excellent';
+                else if (document.getElementById('ef_q1_4')?.checked) rating = 'Good';
+                else if (document.getElementById('ef_q1_3')?.checked) rating = 'Fair';
+                else if (document.getElementById('ef_q1_2')?.checked) rating = 'Poor';
+                else if (document.getElementById('ef_q1_1')?.checked) rating = 'Very Poor';
                 const commentsEl = document.getElementById('ef_comments');
                 const id = 'F-' + Date.now();
                 const record = {
@@ -3860,6 +4036,19 @@ try {
                     rating,
                     comments: commentsEl ? commentsEl.value : ''
                 };
+                const fd = new FormData();
+                fd.append('action','event_feedback_submit');
+                fd.append('name', record.name);
+                fd.append('contact', record.contact);
+                fd.append('email', record.email);
+                fd.append('event', record.event);
+                fd.append('rating', record.rating);
+                fd.append('comments', record.comments);
+                fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' })
+                    .then(r=>r.json())
+                    .then(d=>{
+                        // proceed regardless; local render keeps user view responsive
+                    }).catch(()=>{});
                 let items = [];
                 try { items = JSON.parse(localStorage.getItem('event_feedbacks') || '[]'); } catch(e){ items = []; }
                 items.push(record);

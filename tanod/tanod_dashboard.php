@@ -9,6 +9,19 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+function cps_msg_key() {
+    $dbn = isset($GLOBALS['dbname']) ? (string)$GLOBALS['dbname'] : 'cps';
+    $usr = isset($GLOBALS['username']) ? (string)$GLOBALS['username'] : 'user';
+    return hash('sha256', $dbn . '|' . $usr, true);
+}
+function cps_decrypt_text($b64, $ivb64) {
+    $key = cps_msg_key();
+    $cipher = base64_decode($b64, true);
+    $iv = base64_decode($ivb64, true);
+    if ($cipher === false || $iv === false) { return ''; }
+    $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    return $plain !== false ? $plain : '';
+}
 
 $user_id = $_SESSION['user_id'];
 $query = "SELECT first_name, middle_name, last_name, role, avatar_url, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
@@ -58,6 +71,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_complaint'])) 
         echo json_encode(['ok'=>false,'error'=>'invalid_input']);
     }
     exit();
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'role_messages_list') {
+    header('Content-Type: application/json');
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sender_id INT NOT NULL,
+            recipient_role ENUM('TANOD','SECRETARY','CAPTAIN') NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        try { $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'enc_message'"); $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC); if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN enc_message TEXT DEFAULT NULL"); } } catch (Exception $e) {}
+        try { $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'iv'"); $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC); if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN iv VARCHAR(64) DEFAULT NULL"); } } catch (Exception $e) {}
+        $stmt = $pdo->prepare("SELECT enc_message, iv, created_at FROM messages WHERE recipient_role = 'TANOD' ORDER BY created_at DESC, id DESC LIMIT 200");
+        $stmt->execute([]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = ['message' => cps_decrypt_text($r['enc_message'] ?? '', $r['iv'] ?? ''), 'created_at' => $r['created_at']];
+        }
+        echo json_encode(['success'=>true,'messages'=>$out]);
+        exit();
+    } catch (Exception $e) {
+        echo json_encode(['success'=>false,'messages'=>[]]);
+        exit();
+    }
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_footage'])) {
     header('Content-Type: application/json');
@@ -3617,6 +3656,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             });
         }
+        (function(){
+            const adminMessagesLink = document.getElementById('admin-messages-link');
+            const adminMessagesSection = document.getElementById('admin-messages-section');
+            const adminMessagesBackBtn = document.getElementById('admin-messages-back-btn');
+            const roleMsgChat = document.getElementById('role-msg-chat');
+            function renderRoleChat(messages){
+                if (!roleMsgChat) return;
+                roleMsgChat.innerHTML = '';
+                const all = messages || [];
+                all.forEach(m=>{
+                    const bubble = document.createElement('div');
+                    bubble.style.padding = '10px 12px';
+                    bubble.style.borderRadius = '12px';
+                    bubble.style.maxWidth = '70%';
+                    bubble.style.background = '#fff';
+                    bubble.style.color = '#111827';
+                    bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,.06)';
+                    bubble.textContent = m.message || '';
+                    const meta = document.createElement('div');
+                    meta.style.fontSize = '12px';
+                    meta.style.color = '#6b7280';
+                    meta.style.marginTop = '6px';
+                    const dt = m.created_at ? new Date(m.created_at) : new Date();
+                    meta.textContent = dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'flex-start';
+                    const wrap = document.createElement('div');
+                    wrap.style.margin = '10px';
+                    wrap.appendChild(bubble);
+                    wrap.appendChild(meta);
+                    row.appendChild(wrap);
+                    roleMsgChat.appendChild(row);
+                });
+                roleMsgChat.scrollTop = roleMsgChat.scrollHeight;
+            }
+            async function loadRoleMessages(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','role_messages_list');
+                    const res = await fetch('tanod_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    const msgs = (data && data.success && Array.isArray(data.messages)) ? data.messages : [];
+                    renderRoleChat(msgs);
+                }catch(_){
+                    renderRoleChat([]);
+                }
+            }
+            let roleMsgTimer = null;
+            if (adminMessagesLink && adminMessagesSection) {
+                adminMessagesLink.addEventListener('click', function(e){
+                    e.preventDefault();
+                    document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                    adminMessagesSection.style.display = 'block';
+                    loadRoleMessages();
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); }
+                    roleMsgTimer = setInterval(loadRoleMessages, 2000);
+                });
+            }
+            if (adminMessagesBackBtn && adminMessagesSection) {
+                adminMessagesBackBtn.addEventListener('click', function(){
+                    adminMessagesSection.style.display = 'none';
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); roleMsgTimer = null; }
+                    const home = document.querySelector('.dashboard-content > .dashboard-header');
+                    const stats = document.querySelector('.dashboard-content > .stats-grid');
+                    const main = document.querySelector('.dashboard-content > .main-grid');
+                    if (home) home.style.display = '';
+                    if (stats) stats.style.display = '';
+                    if (main) main.style.display = '';
+                });
+            }
+        })();
     </script>
 </body>
 </html>

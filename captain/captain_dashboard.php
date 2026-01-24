@@ -9,6 +9,20 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+function cps_msg_key() {
+    $dbn = isset($GLOBALS['dbname']) ? (string)$GLOBALS['dbname'] : 'cps';
+    $usr = isset($GLOBALS['username']) ? (string)$GLOBALS['username'] : 'user';
+    return hash('sha256', $dbn . '|' . $usr, true);
+}
+function cps_decrypt_text($b64, $ivb64) {
+    $key = cps_msg_key();
+    $cipher = base64_decode($b64, true);
+    $iv = base64_decode($ivb64, true);
+    if ($cipher === false || $iv === false) { return ''; }
+    $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    return $plain !== false ? $plain : '';
+}
+
 
 $user_id = $_SESSION['user_id'];
 $query = "SELECT first_name, middle_name, last_name, role, avatar_url, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
@@ -187,6 +201,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>false,'error'=>'Failed to delete account']);
                 exit();
             }
+        } elseif ($action === 'role_messages_list') {
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    sender_id INT NOT NULL,
+                    recipient_role ENUM('TANOD','SECRETARY','CAPTAIN') NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                try {
+                    $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'enc_message'");
+                    $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC);
+                    if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN enc_message TEXT DEFAULT NULL"); }
+                } catch (Exception $e) {}
+                try {
+                    $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'iv'");
+                    $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC);
+                    if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN iv VARCHAR(64) DEFAULT NULL"); }
+                } catch (Exception $e) {}
+                $stmt = $pdo->prepare("SELECT enc_message, iv, message, created_at FROM messages WHERE recipient_role = 'CAPTAIN' ORDER BY created_at DESC, id DESC LIMIT 200");
+                $stmt->execute([]);
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                $out = [];
+                foreach ($rows as $r) {
+                    $text = cps_decrypt_text($r['enc_message'] ?? '', $r['iv'] ?? '');
+                    if ($text === '' && !empty($r['message'])) { $text = (string)$r['message']; }
+                    $out[] = ['message' => $text, 'created_at' => $r['created_at']];
+                }
+                echo json_encode(['success'=>true,'messages'=>$out]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'messages'=>[]]);
+                exit();
+            }
         }
         echo json_encode(['success'=>false,'error'=>'Unknown action']);
         exit();
@@ -349,6 +397,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <div id="sidebar-settings-submenu" class="submenu">
                         <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
                         <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
+                    </div>
+                    <div class="menu-item" onclick="toggleSubmenu('messages')">
+                        <div class="icon-box icon-bg-blue">
+                            <i class='bx bxs-chat icon-blue'></i>
+                        </div>
+                        <span class="font-medium">Admin Messages</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="messages" class="submenu">
+                        <a href="#" class="submenu-item" id="admin-messages-link">Admin Messages</a>
                     </div>
                     <a href="../includes/logout.php" class="menu-item">
                         <div class="icon-box icon-bg-red">
@@ -529,6 +589,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                     </div>
                                 </div>
                                 <button class="secondary-button" id="security-delete-account-btn" style="background:#ef4444;color:#fff;border-color:#ef4444;">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="content-section" id="admin-messages-section" style="display:none;">
+                    <div class="dashboard-header">
+                        <div>
+                            <h1 class="dashboard-title">Admin Messages</h1>
+                            <p class="dashboard-subtitle">Messages sent by Admin to Captains</p>
+                        </div>
+                        <div class="dashboard-actions">
+                            <button class="secondary-button" id="admin-messages-back-btn">Back to Dashboard</button>
+                        </div>
+                    </div>
+                    <div class="main-grid">
+                        <div class="left-column">
+                            <div class="card">
+                                <h2 class="card-title">Chat</h2>
+                                <div id="role-msg-chat" style="padding:12px;max-height:420px;overflow-y:auto;background:#f9fafb;border-radius:8px;"></div>
+                            </div>
+                        </div>
+                        <div class="right-column">
+                            <div class="card">
+                                <h2 class="card-title">Notes</h2>
+                                <p style="margin-top:8px;line-height:1.6;">Messages are refreshed automatically.</p>
                             </div>
                         </div>
                     </div>
@@ -2711,6 +2796,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 showOnly(null);
             });
         }
+        (function(){
+            const adminMessagesLink = document.getElementById('admin-messages-link');
+            const adminMessagesSection = document.getElementById('admin-messages-section');
+            const adminMessagesBackBtn = document.getElementById('admin-messages-back-btn');
+            const roleMsgChat = document.getElementById('role-msg-chat');
+            function renderRoleChat(messages){
+                if (!roleMsgChat) return;
+                roleMsgChat.innerHTML = '';
+                const all = messages || [];
+                all.forEach(m=>{
+                    const bubble = document.createElement('div');
+                    bubble.style.padding = '10px 12px';
+                    bubble.style.borderRadius = '12px';
+                    bubble.style.maxWidth = '70%';
+                    bubble.style.background = '#fff';
+                    bubble.style.color = '#111827';
+                    bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,.06)';
+                    bubble.textContent = m.message || '';
+                    const meta = document.createElement('div');
+                    meta.style.fontSize = '12px';
+                    meta.style.color = '#6b7280';
+                    meta.style.marginTop = '6px';
+                    const dt = m.created_at ? new Date(m.created_at) : new Date();
+                    meta.textContent = dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'flex-start';
+                    const wrap = document.createElement('div');
+                    wrap.style.margin = '10px';
+                    wrap.appendChild(bubble);
+                    wrap.appendChild(meta);
+                    row.appendChild(wrap);
+                    roleMsgChat.appendChild(row);
+                });
+                roleMsgChat.scrollTop = roleMsgChat.scrollHeight;
+            }
+            async function loadRoleMessages(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','role_messages_list');
+                    const res = await fetch('captain_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    const msgs = (data && data.success && Array.isArray(data.messages)) ? data.messages : [];
+                    renderRoleChat(msgs);
+                }catch(_){
+                    renderRoleChat([]);
+                }
+            }
+            let roleMsgTimer = null;
+            if (adminMessagesLink && adminMessagesSection) {
+                adminMessagesLink.addEventListener('click', function(e){
+                    e.preventDefault();
+                    document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                    adminMessagesSection.style.display = 'block';
+                    loadRoleMessages();
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); }
+                    roleMsgTimer = setInterval(loadRoleMessages, 2000);
+                });
+            }
+            if (adminMessagesBackBtn && adminMessagesSection) {
+                adminMessagesBackBtn.addEventListener('click', function(){
+                    adminMessagesSection.style.display = 'none';
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); roleMsgTimer = null; }
+                    showOnly(null);
+                });
+            }
+        })();
     </script>
 </body>
 </html>

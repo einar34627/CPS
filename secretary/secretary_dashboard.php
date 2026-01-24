@@ -710,12 +710,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['record_ack'])) {
 session_start();
 require_once '../config/db_connection.php';
 
+function cps_msg_key() {
+    $dbn = isset($GLOBALS['dbname']) ? (string)$GLOBALS['dbname'] : 'cps';
+    $usr = isset($GLOBALS['username']) ? (string)$GLOBALS['username'] : 'user';
+    return hash('sha256', $dbn . '|' . $usr, true);
+}
+function cps_decrypt_text($b64, $ivb64) {
+    $key = cps_msg_key();
+    $cipher = base64_decode($b64, true);
+    $iv = base64_decode($ivb64, true);
+    if ($cipher === false || $iv === false) { return ''; }
+    $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
+    return $plain !== false ? $plain : '';
+}
+
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit();
 }
 
+$__sec_action = $_POST['action'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $____ = ($__sec_action === 'role_messages_list')) {
+    header('Content-Type: application/json');
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS messages (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sender_id INT NOT NULL,
+            recipient_role ENUM('TANOD','SECRETARY','CAPTAIN') NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        try { $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'enc_message'"); $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC); if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN enc_message TEXT DEFAULT NULL"); } } catch (Exception $e) {}
+        try { $chk = $pdo->query("SHOW COLUMNS FROM messages LIKE 'iv'"); $ex = $chk && $chk->fetch(PDO::FETCH_ASSOC); if (!$ex) { $pdo->exec("ALTER TABLE messages ADD COLUMN iv VARCHAR(64) DEFAULT NULL"); } } catch (Exception $e) {}
+        $stmt = $pdo->prepare("SELECT enc_message, iv, message, created_at FROM messages WHERE recipient_role = 'SECRETARY' ORDER BY created_at DESC, id DESC LIMIT 200");
+        $stmt->execute([]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            $t = cps_decrypt_text($r['enc_message'] ?? '', $r['iv'] ?? '');
+            if ($t === '' && !empty($r['message'])) { $t = (string)$r['message']; }
+            $out[] = ['message' => $t, 'created_at' => $r['created_at']];
+        }
+        echo json_encode(['success'=>true,'messages'=>$out]);
+        exit();
+    } catch (Exception $e) {
+        echo json_encode(['success'=>false,'messages'=>[]]);
+        exit();
+    }
+}
 
 $user_id = $_SESSION['user_id'];
 $query = "SELECT first_name, middle_name, last_name, role, avatar_url, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
@@ -1077,6 +1120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
                         <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
                     </div>
+                    <a href="#" class="menu-item" id="admin-messages-link">
+                        <div class="icon-box icon-bg-indigo">
+                            <i class='bx bxs-message-rounded icon-indigo'></i>
+                        </div>
+                        <span class="font-medium">Admin Messages</span>
+                    </a>
                     <a href="../includes/logout.php" class="menu-item">
                         <div class="icon-box icon-bg-red">
                             <i class='bx bx-log-out icon-red'></i>
@@ -1175,6 +1224,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 </div>
                                 <div id="profile-status" style="margin-top:8px;font-weight:500;"></div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+                <div id="admin-messages-section" style="display:none;">
+                    <div class="dashboard-header">
+                        <div>
+                            <h1 class="dashboard-title">Messages</h1>
+                            <p class="dashboard-subtitle">Encrypted messages from Admin</p>
+                        </div>
+                        <div class="dashboard-actions">
+                            <button class="secondary-button" id="admin-messages-back-btn">Back to Dashboard</button>
+                        </div>
+                    </div>
+                    <div class="main-grid" style="grid-template-columns: 1fr;">
+                        <div class="left-column">
+                            <div class="card" style="height:100%;">
+                                <h2 class="card-title">Inbox</h2>
+                                <div id="role-msg-chat" style="padding:12px;max-height:420px;overflow-y:auto;background:#f9fafb;border-radius:8px;margin:12px;"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -4086,6 +4154,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (statsGrid) statsGrid.style.display = '';
             if (defaultMainGrid) defaultMainGrid.style.display = '';
         }
+        (function(){
+            const adminMessagesLink = document.getElementById('admin-messages-link');
+            const adminMessagesSection = document.getElementById('admin-messages-section');
+            const adminMessagesBackBtn = document.getElementById('admin-messages-back-btn');
+            const roleMsgChat = document.getElementById('role-msg-chat');
+            function renderRoleChat(messages){
+                if (!roleMsgChat) return;
+                roleMsgChat.innerHTML = '';
+                const all = messages || [];
+                all.forEach(m=>{
+                    const bubble = document.createElement('div');
+                    bubble.style.padding = '10px 12px';
+                    bubble.style.borderRadius = '12px';
+                    bubble.style.maxWidth = '70%';
+                    bubble.style.background = '#fff';
+                    bubble.style.color = '#111827';
+                    bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,.06)';
+                    bubble.textContent = m.message || '';
+                    const meta = document.createElement('div');
+                    meta.style.fontSize = '12px';
+                    meta.style.color = '#6b7280';
+                    meta.style.marginTop = '6px';
+                    const dt = m.created_at ? new Date(m.created_at) : new Date();
+                    meta.textContent = dt.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'flex-start';
+                    const wrap = document.createElement('div');
+                    wrap.style.margin = '10px';
+                    wrap.appendChild(bubble);
+                    wrap.appendChild(meta);
+                    row.appendChild(wrap);
+                    roleMsgChat.appendChild(row);
+                });
+                roleMsgChat.scrollTop = roleMsgChat.scrollHeight;
+            }
+            async function loadRoleMessages(){
+                try{
+                    const fd = new FormData();
+                    fd.append('action','role_messages_list');
+                    const res = await fetch('secretary_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    const msgs = (data && data.success && Array.isArray(data.messages)) ? data.messages : [];
+                    renderRoleChat(msgs);
+                }catch(_){
+                    renderRoleChat([]);
+                }
+            }
+            let roleMsgTimer = null;
+            if (adminMessagesLink && adminMessagesSection) {
+                adminMessagesLink.addEventListener('click', function(e){
+                    e.preventDefault();
+                    document.querySelectorAll('.dashboard-content > div[id$="-section"]').forEach(s => { s.style.display = 'none'; });
+                    hideDefault();
+                    adminMessagesSection.style.display = 'block';
+                    loadRoleMessages();
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); }
+                    roleMsgTimer = setInterval(loadRoleMessages, 2000);
+                });
+            }
+            if (adminMessagesBackBtn && adminMessagesSection) {
+                adminMessagesBackBtn.addEventListener('click', function(){
+                    adminMessagesSection.style.display = 'none';
+                    if (roleMsgTimer) { clearInterval(roleMsgTimer); roleMsgTimer = null; }
+                    showDefault();
+                });
+            }
+        })();
         const resolutionLink = document.getElementById('barangay-resolution-records-link');
         const ordinanceLink = document.getElementById('ordinance-records-link');
         const minutesLink = document.getElementById('exec-orders-memo-link');

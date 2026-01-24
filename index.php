@@ -860,19 +860,7 @@ try {
                     <a href="#" class="service-link">
                         View Alerts <i class="fas fa-arrow-right"></i>
                     </a>
-                </div>
-                
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fas fa-graduation-cap"></i>
-                    </div>
-                    <h3>Training & Seminars</h3>
-                    <p>Participate in fire safety training, first aid workshops, and emergency preparedness seminars.</p>
-                    <a href="#" class="service-link">
-                        Register Now <i class="fas fa-arrow-right"></i>
-                    </a>
-                </div>
-                
+                </div>  
                 <div class="service-card">
                     <div class="service-icon">
                         <i class="fas fa-comments"></i>
@@ -1003,7 +991,7 @@ try {
             <div class="map-container">
                 <div class="map-info">
                     <h2>Our Location</h2>
-                    <p>Visit our Barangay Commonwealth Fire & Rescue Station for inquiries, assistance, or to meet our dedicated team of emergency responders.</p>
+                    <p>Visit our Barangay Commonwealth for inquiries, assistance, or to meet our dedicated team of emergency responders.</p>
                     
                     <div class="contact-details">
                         <div class="contact-item">
@@ -1012,7 +1000,7 @@ try {
                             </div>
                             <div class="contact-text">
                                 <h4>Address</h4>
-                                <p>Barangay Commonwealth Fire Station, Commonwealth Ave, Quezon City, Metro Manila</p>
+                                <p>Barangay Commonwealth, Commonwealth Ave, Quezon City, Metro Manila</p>
                             </div>
                         </div>
                         
@@ -1072,7 +1060,6 @@ try {
                 <div class="footer-column">
                     <h3>Emergency Services</h3>
                     <ul class="footer-links">
-                        <li><a href="#"><i class="fas fa-chevron-right"></i> Fire Response</a></li>
                         <li><a href="#"><i class="fas fa-chevron-right"></i> Medical Assistance</a></li>
                         <li><a href="#"><i class="fas fa-chevron-right"></i> Rescue Operations</a></li>
                         <li><a href="#"><i class="fas fa-chevron-right"></i> Disaster Response</a></li>
@@ -1083,7 +1070,6 @@ try {
                     <h3>Community</h3>
                     <ul class="footer-links">
                         <li><a href="#volunteer"><i class="fas fa-chevron-right"></i> Volunteer Program</a></li>
-                        <li><a href="#"><i class="fas fa-chevron-right"></i> Training & Seminars</a></li>
                         <li><a href="#"><i class="fas fa-chevron-right"></i> Safety Tips</a></li>
                         <li><a href="#"><i class="fas fa-chevron-right"></i> Community Events</a></li>
                     </ul>
@@ -1101,7 +1087,7 @@ try {
             </div>
             
             <div class="footer-bottom">
-                <p>&copy; 2025 Barangay Commonwealth Fire & Rescue Services. All rights reserved.</p>
+                <p>&copy; 2025 Barangay Commonwealth Community Policing & Surveillance Services. All rights reserved.</p>
             </div>
         </div>
     </footer>
@@ -1129,7 +1115,7 @@ try {
             const marker = L.marker(barangayCommonwealth, {icon: fireIcon}).addTo(map);
             const popupContent = `
                 <div style="padding: 12px; max-width: 280px;">
-                    <h3 style="margin: 0 0 10px; color: #dc2626; font-size: 1.1rem;">Barangay Commonwealth Fire & Rescue Station</h3>
+                    <h3 style="margin: 0 0 10px; color: #dc2626; font-size: 1.1rem;">Barangay Commonwealth</h3>
                     <p style="margin: 0; color: #333; font-weight: 500;">Commonwealth Ave, Quezon City, Metro Manila</p>
                     <p style="margin: 10px 0 0; color: #666;">Emergency Hotline: <strong>911</strong></p>
                 </div>
