@@ -231,6 +231,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>false,'error'=>'Failed to delete account']);
                 exit();
             }
+        } elseif ($action === 'complaint_set_status') {
+            $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            $status = strtolower(trim($_POST['status'] ?? 'resolved'));
+            if ($id <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid ID']); exit(); }
+            $mapped = ($status === 'resolved' || $status === 'closed') ? 'resolved' : 'pending';
+            try {
+                $stmt = $pdo->prepare("UPDATE complaints SET status = ? WHERE id = ?");
+                $stmt->execute([$mapped, $id]);
+                echo json_encode(['success'=>true,'status'=>$mapped]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update status']);
+                exit();
+            }
+        } elseif ($action === 'volunteer_set_status') {
+            $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            $status = strtolower(trim($_POST['status'] ?? 'accepted'));
+            if ($id <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid ID']); exit(); }
+            $allowed = ['accepted','declined','pending'];
+            if (!in_array($status, $allowed, true)) { $status = 'accepted'; }
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS volunteers (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, created_at DATETIME NOT NULL, status VARCHAR(20) DEFAULT 'pending')");
+            } catch (Exception $e) {}
+            try {
+                $stmt = $pdo->prepare("UPDATE volunteers SET status = ? WHERE id = ?");
+                $stmt->execute([$status, $id]);
+                echo json_encode(['success'=>true,'status'=>$status]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update volunteer status']);
+                exit();
+            }
+        } elseif ($action === 'event_registration_set_status') {
+            $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            $status = strtolower(trim($_POST['status'] ?? 'accepted'));
+            if ($id <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid ID']); exit(); }
+            $allowed = ['accepted','declined','pending'];
+            if (!in_array($status, $allowed, true)) { $status = 'accepted'; }
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS event_registrations (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    name VARCHAR(255) DEFAULT NULL,
+                    address VARCHAR(255) DEFAULT NULL,
+                    contact VARCHAR(50) DEFAULT NULL,
+                    email VARCHAR(255) DEFAULT NULL,
+                    type VARCHAR(100) DEFAULT NULL,
+                    skills TEXT DEFAULT NULL,
+                    volunteer TINYINT(1) DEFAULT 0,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    created_at DATETIME NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            } catch (Exception $e) {}
+            try {
+                $stmt = $pdo->prepare("UPDATE event_registrations SET status = ? WHERE id = ?");
+                $stmt->execute([$status, $id]);
+                echo json_encode(['success'=>true,'status'=>$status]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update event registration status']);
+                exit();
+            }
         }
         echo json_encode(['success'=>false,'error'=>'Unknown action']);
         exit();
@@ -298,8 +360,18 @@ $stmt = null;
     <link rel="stylesheet" href="../css/dashboard.css">
     <?php
     try {
-        $watch_stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, email, role, is_verified FROM users WHERE role LIKE ?");
-        $watch_stmt->execute(['%WATCH%']);
+        $colExists = false;
+        try {
+            $chk = $pdo->query("SHOW COLUMNS FROM users LIKE 'watch_group_member'");
+            $colExists = $chk && $chk->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e0) {}
+        if ($colExists) {
+            $watch_stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, email, role, is_verified FROM users WHERE watch_group_member = 1 OR role LIKE ?");
+            $watch_stmt->execute(['%WATCH%']);
+        } else {
+            $watch_stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, email, role, is_verified FROM users WHERE role LIKE ?");
+            $watch_stmt->execute(['%WATCH%']);
+        }
         $watch_members = $watch_stmt->fetchAll(PDO::FETCH_ASSOC);
         $watch_stmt = null;
     } catch (Exception $e) {
@@ -352,34 +424,69 @@ $stmt = null;
         ['id'=>103,'title'=>'Parking Lot Theft 2025-11-25','camera'=>'Parking Cam','recorded_at'=>'2025-11-25 21:05','size'=>'86 MB','url'=>'../evidence/parking_theft_20251125.mp4'],
     ];
 
-    $complaints = [
-        ['id'=>201,'resident'=>'Juan Dela Cruz','issue'=>'Noise disturbance','category'=>'Nuisance','location'=>'Zone 1, Street A','submitted_at'=>'2025-11-27 20:15','status'=>'Pending'],
-        ['id'=>202,'resident'=>'Maria Santos','issue'=>'Garbage not collected','category'=>'Sanitation','location'=>'Zone 3, Street C','submitted_at'=>'2025-11-26 10:05','status'=>'In Review'],
-        ['id'=>203,'resident'=>'Pedro Reyes','issue'=>'Unauthorized parking','category'=>'Traffic','location'=>'Zone 2, Street B','submitted_at'=>'2025-11-25 08:30','status'=>'Resolved'],
-    ];
+    $complaints = [];
+    try {
+        $stmtC = $pdo->prepare("SELECT id, resident, issue, category, location, submitted_at, status, anonymous FROM complaints ORDER BY submitted_at DESC LIMIT 500");
+        $stmtC->execute([]);
+        $complaints = $stmtC->fetchAll(PDO::FETCH_ASSOC);
+        $stmtC = null;
+    } catch (Exception $e) {
+        $complaints = [];
+    }
 
     $complaint_analytics = [];
     foreach ($complaints as $c) {
-        $cat = isset($c['category']) ? $c['category'] : 'General';
-        $loc = isset($c['location']) ? $c['location'] : '—';
+        $cat = isset($c['category']) && $c['category'] !== '' ? $c['category'] : 'General';
+        $loc = isset($c['location']) && $c['location'] !== '' ? $c['location'] : '—';
         $k = $cat.'|'.$loc;
         if (!isset($complaint_analytics[$k])) {
             $concern = $cat.' • '.$loc;
             $complaint_analytics[$k] = ['cat'=>$cat,'loc'=>$loc,'concern'=>$concern,'reports'=>0,'pending'=>0,'resolved'=>0,'last'=>''];
         }
         $complaint_analytics[$k]['reports']++;
-        $st = strtolower($c['status'] ?? '');
-        if ($st === 'resolved') { $complaint_analytics[$k]['resolved']++; } else { $complaint_analytics[$k]['pending']++; }
+        $st = strtolower(trim($c['status'] ?? ''));
+        if ($st === 'resolved' || $st === 'closed') { $complaint_analytics[$k]['resolved']++; } else { $complaint_analytics[$k]['pending']++; }
         $sa = $c['submitted_at'] ?? '';
         if ($sa && (!$complaint_analytics[$k]['last'] || strtotime($sa) > strtotime($complaint_analytics[$k]['last']))) { $complaint_analytics[$k]['last'] = $sa; }
     }
     $complaint_analytics_rows = array_values($complaint_analytics);
 
-    $volunteers = [
-        ['id'=>301,'name'=>'Juan Dela Cruz','role'=>'Volunteer','contact'=>'+63 912 345 6789','email'=>'juan@example.com','zone'=>'Zone 1','availability'=>'Evenings'],
-        ['id'=>302,'name'=>'Maria Santos','role'=>'Tanod','contact'=>'+63 917 555 1212','email'=>'maria@example.com','zone'=>'Zone 3','availability'=>'Weekends'],
-        ['id'=>303,'name'=>'Pedro Reyes','role'=>'Volunteer','contact'=>'+63 915 222 7788','email'=>'pedro@example.com','zone'=>'Zone 2','availability'=>'M-F'],
-    ];
+    $volunteers = [];
+    try {
+        $stmtV = $pdo->prepare("SELECT v.id, v.user_id, v.preferred_zone, v.availability, v.preferred_days, v.time_slots, v.night_duty, v.max_hours, v.role_prefs, v.skills, v.previous_volunteer, v.prev_org, v.years_experience, v.physical_fit, v.medical_conditions, v.long_period, v.valid_id_url, v.status, v.created_at, u.first_name, u.middle_name, u.last_name, u.contact, u.email FROM volunteers v LEFT JOIN users u ON v.user_id = u.id ORDER BY v.created_at DESC LIMIT 500");
+        $stmtV->execute([]);
+        $rowsV = $stmtV->fetchAll(PDO::FETCH_ASSOC);
+        $stmtV = null;
+        foreach ($rowsV as $row) {
+            $name = trim(($row['first_name'] ?? '').' '.($row['middle_name'] ?? '').' '.($row['last_name'] ?? ''));
+            $volunteers[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'name' => $name !== '' ? $name : '—',
+                'role' => 'Volunteer',
+                'contact' => $row['contact'] ?? '',
+                'email' => $row['email'] ?? '',
+                'zone' => $row['preferred_zone'] ?? '',
+                'availability' => $row['availability'] ?? '',
+                'preferred_days' => $row['preferred_days'] ?? '',
+                'time_slots' => $row['time_slots'] ?? '',
+                'night_duty' => isset($row['night_duty']) ? (int)$row['night_duty'] : 0,
+                'max_hours' => isset($row['max_hours']) ? (int)$row['max_hours'] : null,
+                'role_prefs' => $row['role_prefs'] ?? '',
+                'skills' => $row['skills'] ?? '',
+                'previous_volunteer' => isset($row['previous_volunteer']) ? (int)$row['previous_volunteer'] : 0,
+                'prev_org' => $row['prev_org'] ?? '',
+                'years_experience' => isset($row['years_experience']) ? (int)$row['years_experience'] : null,
+                'physical_fit' => isset($row['physical_fit']) ? (int)$row['physical_fit'] : null,
+                'medical_conditions' => $row['medical_conditions'] ?? '',
+                'long_period' => isset($row['long_period']) ? (int)$row['long_period'] : null,
+                'valid_id_url' => $row['valid_id_url'] ?? '',
+                'status' => $row['status'] ?? '',
+                'created_at' => $row['created_at'] ?? ''
+            ];
+        }
+    } catch (Exception $e) {
+        $volunteers = [];
+    }
     ?>
     <style>
         .registry-card { padding: 24px; border-radius: 16px; background: var(--card-bg,#fff); box-shadow: var(--card-shadow,0 10px 25px rgba(0,0,0,0.05)); }
@@ -1244,7 +1351,9 @@ $stmt = null;
                             <?php foreach ($complaints as $c): ?>
                                 <?php
                                     $id = (int)($c['id'] ?? 0);
-                                    $resident = htmlspecialchars($c['resident'] ?? '');
+                                    $anon = isset($c['anonymous']) ? (int)$c['anonymous'] : 0;
+                                    $residentRaw = $c['resident'] ?? '';
+                                    $resident = htmlspecialchars(($anon === 1 || $residentRaw === '') ? 'Anonymous' : $residentRaw);
                                     $issueRaw = $c['issue'] ?? '';
                                     $issueSafe = htmlspecialchars($issueRaw);
                                     $issueShort = (strlen($issueSafe) > 80) ? substr($issueSafe,0,77).'...' : $issueSafe;
@@ -1300,7 +1409,9 @@ $stmt = null;
                             <?php foreach ($complaints as $c): ?>
                                 <?php
                                     $id = (int)($c['id'] ?? 0);
-                                    $resident = htmlspecialchars($c['resident'] ?? '');
+                                    $anon = isset($c['anonymous']) ? (int)$c['anonymous'] : 0;
+                                    $residentRaw = $c['resident'] ?? '';
+                                    $resident = htmlspecialchars(($anon === 1 || $residentRaw === '') ? 'Anonymous' : $residentRaw);
                                     $issueRaw = $c['issue'] ?? '';
                                     $issueSafe = htmlspecialchars($issueRaw);
                                     $issueShort = (strlen($issueSafe) > 80) ? substr($issueSafe,0,77).'...' : $issueSafe;
@@ -1414,14 +1525,30 @@ $stmt = null;
                                     $zone = htmlspecialchars($v['zone'] ?? '');
                                     $avail = htmlspecialchars($v['availability'] ?? '');
                                 ?>
-                                <tr class="volreg-row" data-id="<?php echo $id; ?>" data-name="<?php echo $name; ?>" data-role="<?php echo $roleLabel; ?>" data-contact="<?php echo $contact; ?>" data-email="<?php echo $email; ?>" data-zone="<?php echo $zone; ?>" data-availability="<?php echo $avail; ?>">
+                                <tr class="volreg-row" data-id="<?php echo $id; ?>" data-name="<?php echo $name; ?>" data-role="<?php echo $roleLabel; ?>" data-contact="<?php echo $contact; ?>" data-email="<?php echo $email; ?>" data-zone="<?php echo $zone; ?>" data-availability="<?php echo $avail; ?>"
+                                    data-days="<?php echo htmlspecialchars($v['preferred_days'] ?? ''); ?>"
+                                    data-slots="<?php echo htmlspecialchars($v['time_slots'] ?? ''); ?>"
+                                    data-night="<?php echo isset($v['night_duty']) ? (int)$v['night_duty'] : 0; ?>"
+                                    data-max="<?php echo isset($v['max_hours']) ? (int)$v['max_hours'] : 0; ?>"
+                                    data-roles="<?php echo htmlspecialchars($v['role_prefs'] ?? ''); ?>"
+                                    data-skills="<?php echo htmlspecialchars($v['skills'] ?? ''); ?>"
+                                    data-prev="<?php echo isset($v['previous_volunteer']) ? (int)$v['previous_volunteer'] : 0; ?>"
+                                    data-prevorg="<?php echo htmlspecialchars($v['prev_org'] ?? ''); ?>"
+                                    data-years="<?php echo isset($v['years_experience']) ? (int)$v['years_experience'] : 0; ?>"
+                                    data-fit="<?php echo isset($v['physical_fit']) ? (int)$v['physical_fit'] : ''; ?>"
+                                    data-med="<?php echo htmlspecialchars($v['medical_conditions'] ?? ''); ?>"
+                                    data-long="<?php echo isset($v['long_period']) ? (int)$v['long_period'] : ''; ?>"
+                                    data-idurl="<?php echo htmlspecialchars($v['valid_id_url'] ?? ''); ?>"
+                                    data-status="<?php echo htmlspecialchars($v['status'] ?? ''); ?>"
+                                    data-created="<?php echo htmlspecialchars($v['created_at'] ?? ''); ?>"
+                                >
                                     <td><?php echo $name; ?></td>
                                     <td><?php echo $roleLabel; ?></td>
                                     <td><?php echo $contact; ?></td>
                                     <td><?php echo $email; ?></td>
                                     <td><?php echo $zone; ?></td>
                                     <td><?php echo $avail; ?></td>
-                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button></td>
+                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="primary-button volreg-accept-btn">Accept</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (empty($volunteers)): ?>
@@ -1768,7 +1895,98 @@ $stmt = null;
                         <div class="registry-title">Registration System</div>
                         <button class="secondary-button" id="registration-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="registration-system-frame" src="Registratiom%20System.php" title="Registration System" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <?php
+                        $event_regs = [];
+                        try {
+                            $pdo->exec("CREATE TABLE IF NOT EXISTS event_registrations (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                user_id INT NOT NULL,
+                                name VARCHAR(255) DEFAULT NULL,
+                                address VARCHAR(255) DEFAULT NULL,
+                                contact VARCHAR(50) DEFAULT NULL,
+                                email VARCHAR(255) DEFAULT NULL,
+                                type VARCHAR(100) DEFAULT NULL,
+                                skills TEXT DEFAULT NULL,
+                                volunteer TINYINT(1) DEFAULT 0,
+                                status VARCHAR(20) DEFAULT 'pending',
+                                created_at DATETIME NOT NULL
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                            $er_stmt = $pdo->prepare("SELECT er.*, u.first_name, u.middle_name, u.last_name, u.contact AS u_contact, u.email AS u_email FROM event_registrations er LEFT JOIN users u ON er.user_id = u.id ORDER BY er.created_at DESC LIMIT 500");
+                            $er_stmt->execute([]);
+                            $event_regs = $er_stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $er_stmt = null;
+                        } catch (Exception $e) {
+                            $event_regs = [];
+                        }
+                    ?>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Event Registrations</div>
+                    </div>
+                    <table class="assign-table" id="eventreg-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Contact</th>
+                                <th>Email</th>
+                                <th>Type</th>
+                                <th>Skills</th>
+                                <th>Volunteer</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($event_regs as $er): ?>
+                                <?php
+                                    $rid = (int)($er['id'] ?? 0);
+                                    $nameRaw = trim(($er['name'] ?? ''));
+                                    if ($nameRaw === '') {
+                                        $nameRaw = trim(($er['first_name'] ?? '').' '.($er['middle_name'] ?? '').' '.($er['last_name'] ?? ''));
+                                    }
+                                    $name = htmlspecialchars($nameRaw !== '' ? $nameRaw : '—');
+                                    $contact = htmlspecialchars(($er['contact'] ?? '') !== '' ? $er['contact'] : ($er['u_contact'] ?? ''));
+                                    $email = htmlspecialchars(($er['email'] ?? '') !== '' ? $er['email'] : ($er['u_email'] ?? ''));
+                                    $type = htmlspecialchars($er['type'] ?? '');
+                                    $skills = htmlspecialchars($er['skills'] ?? '');
+                                    $vol = isset($er['volunteer']) ? ((int)$er['volunteer'] === 1 ? 'Yes' : 'No') : 'No';
+                                    $status = htmlspecialchars($er['status'] ?? 'pending');
+                                ?>
+                                <tr class="eventreg-row"
+                                    data-id="<?php echo $rid; ?>"
+                                    data-name="<?php echo $name; ?>"
+                                    data-contact="<?php echo $contact; ?>"
+                                    data-email="<?php echo $email; ?>"
+                                    data-type="<?php echo $type; ?>"
+                                    data-skills="<?php echo $skills; ?>"
+                                    data-volunteer="<?php echo $vol === 'Yes' ? 1 : 0; ?>"
+                                    data-status="<?php echo $status; ?>"
+                                >
+                                    <td><?php echo $name; ?></td>
+                                    <td><?php echo $contact !== '' ? $contact : '—'; ?></td>
+                                    <td><?php echo $email !== '' ? $email : '—'; ?></td>
+                                    <td><?php echo $type !== '' ? $type : '—'; ?></td>
+                                    <td><?php echo $skills !== '' ? $skills : '—'; ?></td>
+                                    <td><?php echo $vol; ?></td>
+                                    <td>
+                                        <?php if ($status === 'accepted'): ?>
+                                            <span class="badge badge-active">accepted</span>
+                                        <?php elseif ($status === 'declined'): ?>
+                                            <span class="badge badge-inactive">declined</span>
+                                        <?php else: ?>
+                                            <span class="badge badge-pending">pending</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="assign-controls">
+                                        <button class="primary-button eventreg-accept-btn">Accept</button>
+                                        <button class="secondary-button eventreg-decline-btn">Decline</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($event_regs)): ?>
+                                <tr><td colspan="8">No event registrations found.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
             <div class="content-section" id="event-scheduling-section">
@@ -1786,7 +2004,74 @@ $stmt = null;
                         <div class="registry-title">Feedback</div>
                         <button class="secondary-button" id="feedback-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="feedback-frame" src="Feedback.php" title="Feedback" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <?php
+                        $feedbacks = [];
+                        try {
+                            $pdo->exec("CREATE TABLE IF NOT EXISTS event_feedbacks (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                user_id INT DEFAULT NULL,
+                                name VARCHAR(255) DEFAULT NULL,
+                                contact VARCHAR(50) DEFAULT NULL,
+                                email VARCHAR(255) DEFAULT NULL,
+                                event VARCHAR(255) DEFAULT NULL,
+                                rating VARCHAR(20) DEFAULT NULL,
+                                comments TEXT DEFAULT NULL,
+                                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                            $fb_stmt = $pdo->prepare("SELECT ef.*, u.first_name, u.middle_name, u.last_name FROM event_feedbacks ef LEFT JOIN users u ON ef.user_id = u.id ORDER BY ef.created_at DESC LIMIT 500");
+                            $fb_stmt->execute([]);
+                            $feedbacks = $fb_stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $fb_stmt = null;
+                        } catch (Exception $e) {
+                            $feedbacks = [];
+                        }
+                    ?>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Event Feedback Users</div>
+                    </div>
+                    <table class="assign-table" id="event-feedback-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Contact</th>
+                                <th>Event</th>
+                                <th>Rating</th>
+                                <th>Comments</th>
+                                <th>Submitted</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($feedbacks as $f): ?>
+                                <?php
+                                    $fname = trim(($f['name'] ?? ''));
+                                    if ($fname === '') {
+                                        $fname = trim(($f['first_name'] ?? '').' '.($f['middle_name'] ?? '').' '.($f['last_name'] ?? ''));
+                                    }
+                                    $name = htmlspecialchars($fname !== '' ? $fname : '—');
+                                    $email = htmlspecialchars($f['email'] ?? '—');
+                                    $contact = htmlspecialchars($f['contact'] ?? '—');
+                                    $event = htmlspecialchars($f['event'] ?? '—');
+                                    $rating = htmlspecialchars($f['rating'] ?? '—');
+                                    $comments = htmlspecialchars($f['comments'] ?? '—');
+                                    $submitted = htmlspecialchars(isset($f['created_at']) ? date('M d, Y H:i', strtotime($f['created_at'])) : '—');
+                                ?>
+                                <tr>
+                                    <td><?php echo $name; ?></td>
+                                    <td><?php echo $email; ?></td>
+                                    <td><?php echo $contact; ?></td>
+                                    <td><?php echo $event; ?></td>
+                                    <td><?php echo $rating; ?></td>
+                                    <td><?php echo $comments; ?></td>
+                                    <td><?php echo $submitted; ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($feedbacks)): ?>
+                                <tr><td colspan="7">No feedback found.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
             <div class="content-section" id="tip-portal-section" style="display:none;">
@@ -2707,18 +2992,149 @@ $stmt = null;
 
         const volregTable = document.getElementById('volreg-table');
         if (volregTable) {
-            volregTable.addEventListener('click', function(e){
+            volregTable.addEventListener('click', async function(e){
                 const row = e.target.closest('.volreg-row');
+                const viewBtn = e.target.closest('.volreg-view-btn');
+                const acceptBtn = e.target.closest('.volreg-accept-btn');
+                const declineBtn = e.target.closest('.volreg-decline-btn');
                 if (!row) return;
-                const panel = document.getElementById('volreg-details');
-                panel.style.display = 'block';
-                const name = row.getAttribute('data-name');
-                const role = row.getAttribute('data-role');
-                const contact = row.getAttribute('data-contact');
-                const email = row.getAttribute('data-email');
-                const zone = row.getAttribute('data-zone');
-                const avail = row.getAttribute('data-availability');
-                panel.innerHTML = `<div><div style=\"font-weight:600;font-size:16px;\">${name}</div><div style=\"color:#6b7280;font-size:14px;\">${role} • ${zone} • ${avail}</div><div style=\"margin-top:10px;\">Contact: ${contact}</div><div style=\"margin-top:10px;\">Email: ${email}</div></div>`;
+                if (viewBtn) {
+                    const panel = document.getElementById('volreg-details');
+                    panel.style.display = 'block';
+                    const name = row.getAttribute('data-name') || '—';
+                    const role = row.getAttribute('data-role') || 'Volunteer';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const zone = row.getAttribute('data-zone') || '—';
+                    const avail = row.getAttribute('data-availability') || '—';
+                    const days = row.getAttribute('data-days') || '—';
+                    const slots = row.getAttribute('data-slots') || '—';
+                    const night = row.getAttribute('data-night'); const nightLabel = night==='1'?'Yes':(night==='0'?'No':'—');
+                    const maxh = row.getAttribute('data-max') || '—';
+                    const roles = row.getAttribute('data-roles') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const prev = row.getAttribute('data-prev'); const prevLabel = prev==='1'?'Yes':(prev==='0'?'No':'—');
+                    const prevorg = row.getAttribute('data-prevorg') || '—';
+                    const years = row.getAttribute('data-years') || '—';
+                    const fit = row.getAttribute('data-fit'); const fitLabel = fit==='1'?'Yes':(fit==='0'?'No':'—');
+                    const medical = row.getAttribute('data-med') || '—';
+                    const longp = row.getAttribute('data-long'); const longLabel = longp==='1'?'Yes':(longp==='0'?'No':'—');
+                    const idurl = row.getAttribute('data-idurl') || '';
+                    const idSrc = idurl ? ('../' + idurl) : '';
+                    const created = row.getAttribute('data-created') || '';
+                    const status = row.getAttribute('data-status') || 'pending';
+                    const badgeClass = status==='pending' ? 'badge-pending' : (status==='declined' ? 'badge-inactive' : 'badge-active');
+                    panel.innerHTML = `
+                        <div>
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div>
+                                    <div style="font-weight:600;font-size:16px;">${name}</div>
+                                    <div style="color:#6b7280;font-size:14px;">${role} • ${zone} • ${avail}</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-weight:600;">Valid ID</div>
+                                    ${idSrc ? `<img src="${idSrc}" alt="Valid ID" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">` : ''}
+                                </div>
+                            </div>
+                            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+                                <button class="secondary-button" id="volreg-details-close">Close</button>
+                            </div>
+                            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                <div>Contact: <strong>${contact}</strong></div>
+                                <div>Email: <strong>${email}</strong></div>
+                                <div>Preferred Days: <strong>${days}</strong></div>
+                                <div>Time Slots: <strong>${slots}</strong></div>
+                                <div>Night Duty: <strong>${nightLabel}</strong></div>
+                                <div>Max Hours/Week: <strong>${maxh}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Role Preferences: <strong>${roles}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Skills: <strong>${skills}</strong></div>
+                                <div>Previous Volunteer: <strong>${prevLabel}</strong></div>
+                                <div>Years of Experience: <strong>${years}</strong></div>
+                                <div>Physical Fit: <strong>${fitLabel}</strong></div>
+                                <div>Long Period Ability: <strong>${longLabel}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Previous Organization: <strong>${prevorg}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Medical Conditions: <strong>${medical}</strong></div>
+                                <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
+                                <div>Applied: <strong>${created}</strong></div>
+                            </div>
+                        </div>
+                    `;
+                    const closeBtn = panel.querySelector('#volreg-details-close');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
+                    }
+                    return;
+                }
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'volunteer_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const panel = document.getElementById('volreg-details');
+                            if (panel && panel.style.display !== 'none'){
+                                const badge = panel.querySelector('#volreg-status-badge');
+                                if (badge){
+                                    badge.textContent = data.status;
+                                    badge.className = 'badge ' + (data.status==='pending' ? 'badge-pending' : (data.status==='declined' ? 'badge-inactive' : 'badge-active'));
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
+                if (acceptBtn) { await setStatus('accepted'); return; }
+                if (declineBtn) { await setStatus('declined'); return; }
+            });
+        }
+
+        const eventregTable = document.getElementById('eventreg-table');
+        if (eventregTable) {
+            eventregTable.addEventListener('click', async function(e){
+                const row = e.target.closest('.eventreg-row');
+                const acceptBtn = e.target.closest('.eventreg-accept-btn');
+                const declineBtn = e.target.closest('.eventreg-decline-btn');
+                if (!row) return;
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'event_registration_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const statusCell = row.querySelector('td:nth-child(7)');
+                            if (statusCell){
+                                if (data.status === 'accepted') {
+                                    statusCell.innerHTML = '<span class="badge badge-active">accepted</span>';
+                                } else if (data.status === 'declined') {
+                                    statusCell.innerHTML = '<span class="badge badge-inactive">declined</span>';
+                                } else {
+                                    statusCell.innerHTML = '<span class="badge badge-pending">pending</span>';
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
+                if (acceptBtn) { await setStatus('accepted'); return; }
+                if (declineBtn) { await setStatus('declined'); return; }
             });
         }
 
@@ -3508,25 +3924,37 @@ $stmt = null;
                 const row = e.target.closest('.complaint-status-row');
                 const resolveBtn = e.target.closest('.status-resolve-btn');
                 if (resolveBtn && row) {
-                    row.setAttribute('data-status','Resolved');
-                    const stCell = row.querySelector('td:nth-child(4)');
-                    if (stCell) stCell.innerHTML = '<span class="badge badge-resolved">Resolved</span>';
-                    updateCounts();
                     const rid = row.getAttribute('data-id');
-                    const onlineRow = document.querySelector(`#complaint-table .complaint-row[data-id="${rid}"]`);
-                    if (onlineRow) {
-                        onlineRow.setAttribute('data-status','Resolved');
-                        const oc = onlineRow.querySelector('td:nth-child(6)');
-                        if (oc) oc.innerHTML = '<span class="badge badge-resolved">Resolved</span>';
-                    }
-                    const panel = document.getElementById('status-details');
-                    if (panel) {
-                        const name = row.getAttribute('data-resident');
-                        const issue = row.getAttribute('data-issue');
-                        const at = row.getAttribute('data-at');
-                        panel.style.display = 'block';
-                        panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="margin-top:10px;">${issue}</div><div style="margin-top:10px;">Submitted: ${at}</div><div style="margin-top:10px;" class="badge badge-resolved">Resolved</div></div>`;
-                    }
+                    resolveBtn.disabled = true;
+                    fetch('admin_dashboard.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ action: 'complaint_set_status', id: rid, status: 'resolved' }),
+                        credentials: 'same-origin'
+                    }).then(r => r.json()).then(d => {
+                        if (d && d.success) {
+                            row.setAttribute('data-status','Resolved');
+                            const stCell = row.querySelector('td:nth-child(4)');
+                            if (stCell) stCell.innerHTML = '<span class="badge badge-resolved">Resolved</span>';
+                            updateCounts();
+                            const onlineRow = document.querySelector(`#complaint-table .complaint-row[data-id="${rid}"]`);
+                            if (onlineRow) {
+                                onlineRow.setAttribute('data-status','Resolved');
+                                const oc = onlineRow.querySelector('td:nth-child(6)');
+                                if (oc) oc.innerHTML = '<span class="badge badge-resolved">Resolved</span>';
+                            }
+                            const panel = document.getElementById('status-details');
+                            if (panel) {
+                                const name = row.getAttribute('data-resident');
+                                const issue = row.getAttribute('data-issue');
+                                const at = row.getAttribute('data-at');
+                                panel.style.display = 'block';
+                                panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="margin-top:10px;">${issue}</div><div style="margin-top:10px;">Submitted: ${at}</div><div style="margin-top:10px;" class="badge badge-resolved">Resolved</div></div>`;
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    }).catch(()=>{ alert('Network error'); }).finally(()=>{ resolveBtn.disabled = false; });
                     return;
                 }
                 if (row) {

@@ -354,7 +354,6 @@ $categories = $pdo->query("SELECT DISTINCT category FROM tips WHERE category IS 
             text-rendering: auto;
             display: inline-block;
             text-transform: none;
-            speak: none;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }

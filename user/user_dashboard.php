@@ -1,12 +1,257 @@
 <?php
-
 session_start();
 require_once '../config/db_connection.php';
+
+function save_uploaded_file($file, $subdir){
+    if (!isset($file['tmp_name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return '';
+    $type = @mime_content_type($file['tmp_name']);
+    $size = @filesize($file['tmp_name']);
+    if ($size !== false && $size > 50 * 1024 * 1024) return '';
+    $ext = 'bin';
+    if ($type === 'image/jpeg') $ext = 'jpg';
+    elseif ($type === 'image/png') $ext = 'png';
+    elseif ($type === 'image/webp') $ext = 'webp';
+    elseif ($type === 'video/mp4') $ext = 'mp4';
+    elseif ($type === 'video/ogg') $ext = 'ogg';
+    elseif ($type === 'video/webm') $ext = 'webm';
+    $root = dirname(__DIR__);
+    $dir = $root . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . str_replace(['\\','/'], DIRECTORY_SEPARATOR, $subdir);
+    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+    $name = 'r'.bin2hex(random_bytes(8)).'.'.$ext;
+    $dest = $dir . DIRECTORY_SEPARATOR . $name;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) return '';
+    return 'uploads/'.str_replace(['\\','/'], '/', $subdir).'/'.$name;
+}
 
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'join_watch') {
+        $uid = $_SESSION['user_id'];
+        try {
+            try {
+                $chk = $pdo->query("SHOW COLUMNS FROM users LIKE 'watch_group_member'");
+                $exists = $chk && $chk->fetch(PDO::FETCH_ASSOC);
+                if (!$exists) { $pdo->exec("ALTER TABLE users ADD COLUMN watch_group_member TINYINT(1) DEFAULT 0"); }
+            } catch (Exception $e0) {}
+            $stmt = $pdo->prepare("SELECT role FROM users WHERE id = ?");
+            $stmt->execute([$uid]);
+            $currentRole = $stmt->fetchColumn();
+            $newRole = is_string($currentRole) ? strtoupper($currentRole) : 'USER';
+            if (strpos($newRole, 'WATCH') === false) {
+                $newRole = $newRole . '_WATCH';
+            }
+            $upd = $pdo->prepare("UPDATE users SET role = ?, watch_group_member = 1 WHERE id = ?");
+            $upd->execute([$newRole, $uid]);
+            echo json_encode(['success' => true]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success' => false]);
+            exit();
+        }
+    } elseif ($action === 'quick_report') {
+        $uid = $_SESSION['user_id'];
+        $type = trim($_POST['type'] ?? '');
+        $other = trim($_POST['other'] ?? '');
+        $location = trim($_POST['location'] ?? '');
+        $desc = trim($_POST['description'] ?? '');
+        $cat = $type === 'other' && $other !== '' ? $other : ($type !== '' ? $type : 'Other');
+        $photoUrl = '';
+        $videoUrl = '';
+        if (isset($_FILES['photo']) && ($_FILES['photo']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $photoUrl = save_uploaded_file($_FILES['photo'], 'reports/photos');
+        }
+        if (isset($_FILES['video']) && ($_FILES['video']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $videoUrl = save_uploaded_file($_FILES['video'], 'reports/videos');
+        }
+        try {
+            try { $pdo->exec("CREATE TABLE IF NOT EXISTS watch_observations (id INT AUTO_INCREMENT PRIMARY KEY, observed_at DATETIME NOT NULL, location VARCHAR(255) DEFAULT NULL, category VARCHAR(100) DEFAULT 'Other', description TEXT NOT NULL, status VARCHAR(30) DEFAULT 'pending')"); } catch (Exception $e) {}
+            try { $pdo->exec("ALTER TABLE watch_observations ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+            try { $pdo->exec("ALTER TABLE watch_observations ADD COLUMN IF NOT EXISTS video_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+            $ins = $pdo->prepare("INSERT INTO watch_observations (observed_at, location, category, description, status, photo_url, video_url) VALUES (NOW(), ?, ?, ?, 'pending', ?, ?)");
+            $ins->execute([$location, $cat, $desc, $photoUrl, $videoUrl]);
+            echo json_encode(['success'=>true]);
+            exit();
+        } catch (Exception $e) {
+            try { $pdo->exec("CREATE TABLE IF NOT EXISTS observations (id INT AUTO_INCREMENT PRIMARY KEY, observed_at DATETIME NOT NULL, location VARCHAR(255) DEFAULT NULL, category VARCHAR(100) DEFAULT 'Other', description TEXT NOT NULL, status VARCHAR(30) DEFAULT 'pending')"); } catch (Exception $e2) {}
+            try { $pdo->exec("ALTER TABLE observations ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e2) {}
+            try { $pdo->exec("ALTER TABLE observations ADD COLUMN IF NOT EXISTS video_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e2) {}
+            try {
+                $ins2 = $pdo->prepare("INSERT INTO observations (observed_at, location, category, description, status, photo_url, video_url) VALUES (NOW(), ?, ?, ?, 'pending', ?, ?)");
+                $ins2->execute([$location, $cat, $desc, $photoUrl, $videoUrl]);
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e3) {
+                echo json_encode(['success'=>false]);
+                exit();
+            }
+        }
+    } elseif ($action === 'submit_complaint') {
+        $uid = $_SESSION['user_id'];
+        $category = trim($_POST['category'] ?? '');
+        $location = trim($_POST['location'] ?? '');
+        $desc = trim($_POST['description'] ?? '');
+        $urgency = trim($_POST['urgency'] ?? '');
+        $anonymous = isset($_POST['anonymous']) && $_POST['anonymous'] === '1' ? 1 : 0;
+        $resident = '';
+        try {
+            $stmt = $pdo->prepare("SELECT first_name, middle_name, last_name FROM users WHERE id = ?");
+            $stmt->execute([$uid]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $resident = trim(($row['first_name'] ?? '').' '.($row['middle_name'] ?? '').' '.($row['last_name'] ?? ''));
+            }
+        } catch (Exception $e) {}
+        if ($anonymous) { $resident = ''; }
+        $photoUrl = '';
+        $videoUrl = '';
+        if (isset($_FILES['photo']) && ($_FILES['photo']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $photoUrl = save_uploaded_file($_FILES['photo'], 'complaints/photos');
+        }
+        if (isset($_FILES['video']) && ($_FILES['video']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $videoUrl = save_uploaded_file($_FILES['video'], 'complaints/videos');
+        }
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS complaints (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                submitted_at DATETIME NOT NULL,
+                user_id INT NOT NULL,
+                resident VARCHAR(255) DEFAULT NULL,
+                issue TEXT NOT NULL,
+                category VARCHAR(100) DEFAULT 'General',
+                location VARCHAR(255) DEFAULT NULL,
+                status VARCHAR(30) DEFAULT 'pending',
+                anonymous TINYINT(1) DEFAULT 0,
+                urgency VARCHAR(20) DEFAULT NULL
+            )");
+        } catch (Exception $e) {}
+        try { $pdo->exec("ALTER TABLE complaints ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+        try { $pdo->exec("ALTER TABLE complaints ADD COLUMN IF NOT EXISTS video_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+        try {
+            $ins = $pdo->prepare("INSERT INTO complaints (submitted_at, user_id, resident, issue, category, location, status, anonymous, urgency, photo_url, video_url) VALUES (NOW(), ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)");
+            $ins->execute([$uid, $resident, $desc, ($category !== '' ? $category : 'General'), $location, $anonymous, ($urgency !== '' ? $urgency : null), $photoUrl, $videoUrl]);
+            echo json_encode(['success'=>true,'id'=>$pdo->lastInsertId()]);
+            exit();
+        } catch (Exception $e) {
+            error_log("Complaint submission error: " . $e->getMessage());
+            echo json_encode(['success'=>false, 'error'=>$e->getMessage()]);
+            exit();
+        }
+    } elseif ($action === 'apply_volunteer') {
+        $uid = $_SESSION['user_id'];
+        $preferred_days = trim($_POST['preferred_days'] ?? '');
+        $time_slots = trim($_POST['time_slots'] ?? '');
+        $night_duty = isset($_POST['night_duty']) && $_POST['night_duty'] === '1' ? 1 : 0;
+        $preferred_zone = trim($_POST['preferred_zone'] ?? '');
+        $max_hours = trim($_POST['max_hours'] ?? '');
+        $role_prefs = trim($_POST['role_prefs'] ?? '');
+        $skills = trim($_POST['skills'] ?? '');
+        $previous_volunteer = isset($_POST['previous_volunteer']) && $_POST['previous_volunteer'] === '1' ? 1 : 0;
+        $prev_org = trim($_POST['prev_org'] ?? '');
+        $years_experience = trim($_POST['years_experience'] ?? '');
+        $physical_fit = isset($_POST['physical_fit']) && $_POST['physical_fit'] === '1' ? 1 : (isset($_POST['physical_fit']) && $_POST['physical_fit'] === '0' ? 0 : null);
+        $medical_conditions = trim($_POST['medical_conditions'] ?? '');
+        $long_period = isset($_POST['long_period']) && $_POST['long_period'] === '1' ? 1 : (isset($_POST['long_period']) && $_POST['long_period'] === '0' ? 0 : null);
+        $validIdUrl = '';
+        if (isset($_FILES['valid_id']) && ($_FILES['valid_id']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $validIdUrl = save_uploaded_file($_FILES['valid_id'], 'volunteers/ids');
+        }
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS volunteers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                created_at DATETIME NOT NULL,
+                status VARCHAR(20) DEFAULT 'pending',
+                preferred_days VARCHAR(255) DEFAULT NULL,
+                time_slots VARCHAR(255) DEFAULT NULL,
+                night_duty TINYINT(1) DEFAULT 0,
+                preferred_zone VARCHAR(255) DEFAULT NULL,
+                max_hours INT DEFAULT NULL,
+                role_prefs TEXT DEFAULT NULL,
+                skills TEXT DEFAULT NULL,
+                previous_volunteer TINYINT(1) DEFAULT 0,
+                prev_org VARCHAR(255) DEFAULT NULL,
+                years_experience INT DEFAULT NULL,
+                physical_fit TINYINT(1) DEFAULT NULL,
+                medical_conditions TEXT DEFAULT NULL,
+                long_period TINYINT(1) DEFAULT NULL,
+                valid_id_url VARCHAR(255) DEFAULT NULL
+            )");
+        } catch (Exception $e) {}
+        try { $pdo->exec("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS availability VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+        $availability = '';
+        if ($preferred_days !== '' && $time_slots !== '') {
+            $availability = $preferred_days . ' • ' . $time_slots;
+        } elseif ($preferred_days !== '') {
+            $availability = $preferred_days;
+        } elseif ($time_slots !== '') {
+            $availability = $time_slots;
+        }
+        try {
+            $stmt = $pdo->prepare("INSERT INTO volunteers (user_id, created_at, status, preferred_days, time_slots, night_duty, preferred_zone, max_hours, role_prefs, skills, previous_volunteer, prev_org, years_experience, physical_fit, medical_conditions, long_period, valid_id_url, availability) VALUES (?, NOW(), 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $uid, $preferred_days, $time_slots, $night_duty, $preferred_zone,
+                ($max_hours !== '' ? (int)$max_hours : null), $role_prefs, $skills, $previous_volunteer, $prev_org,
+                ($years_experience !== '' ? (int)$years_experience : null), $physical_fit, $medical_conditions, $long_period,
+                $validIdUrl, ($availability !== '' ? $availability : null)
+            ]);
+            echo json_encode(['success'=>true, 'id'=>$pdo->lastInsertId()]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false,'error'=>'Failed to register volunteer']);
+            exit();
+        }
+    } elseif ($action === 'event_register') {
+        $uid = $_SESSION['user_id'];
+        $name = trim($_POST['name'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+        $contact = trim($_POST['contact'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $type = trim($_POST['type'] ?? '');
+        $skills = trim($_POST['skills'] ?? '');
+        $volunteer = isset($_POST['volunteer']) && $_POST['volunteer'] === '1' ? 1 : 0;
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS event_registrations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                name VARCHAR(255) DEFAULT NULL,
+                address VARCHAR(255) DEFAULT NULL,
+                contact VARCHAR(50) DEFAULT NULL,
+                email VARCHAR(255) DEFAULT NULL,
+                type VARCHAR(100) DEFAULT NULL,
+                skills TEXT DEFAULT NULL,
+                volunteer TINYINT(1) DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'pending',
+                created_at DATETIME NOT NULL
+            )");
+        } catch (Exception $e) {}
+        try {
+            $stmt = $pdo->prepare("INSERT INTO event_registrations (user_id, name, address, contact, email, type, skills, volunteer, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+            $stmt->execute([$uid, ($name !== '' ? $name : null), ($address !== '' ? $address : null), ($contact !== '' ? $contact : null), ($email !== '' ? $email : null), ($type !== '' ? $type : null), ($skills !== '' ? $skills : null), $volunteer]);
+            echo json_encode(['success'=>true,'id'=>$pdo->lastInsertId()]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false,'error'=>'Failed to register for event']);
+            exit();
+        }
+    } elseif ($action === 'complaint_list') {
+        $uid = $_SESSION['user_id'];
+        try {
+            $stmt = $pdo->prepare("SELECT id, submitted_at, issue, location, status FROM complaints WHERE user_id = ? ORDER BY submitted_at DESC LIMIT 200");
+            $stmt->execute([$uid]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['success'=>true,'complaints'=>$rows]);
+            exit();
+        } catch (Exception $e) {
+            echo json_encode(['success'=>false,'complaints'=>[]]);
+            exit();
+        }
+    }
 }
 
 
@@ -88,7 +333,8 @@ $stmt = null;
             margin-top: 5px;
             font-size: 0.95rem;
         }
-        
+        .option-list{display:flex;flex-direction:column;gap:6px}
+        .option-list>div{display:flex;align-items:center;gap:6px}
         .form-group {
             margin-bottom: 20px;
         }
@@ -547,8 +793,10 @@ $stmt = null;
                         </button>
                         <div class="user-profile">
                              <img src="<?php echo $avatar_path; ?>" alt="User" class="user-avatar">
-                            <div class="user-info">
+                            <div class="user-info" style="position:relative;">
                                 <p class="user-name"><?php echo $full_name; ?></p>
+                                <div id="join-success-bubble" style="display:none;position:absolute;left:0;top:calc(100% + 6px);background:#10b981;color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,0.1);font-weight:600;font-size:12px;">successfully join!</div>
+                                <div id="volunteer-success-bubble" style="display:none;position:absolute;left:0;top:calc(100% + 6px);background:#16a34a;color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 4px 10px rgba(0,0,0,0.1);font-weight:600;font-size:12px;">successfully submit!</div>
                                 <p class="user-email"><?php echo $role; ?></p>
                           </div>
                         </div>
@@ -1755,25 +2003,29 @@ $stmt = null;
                             <label for="va_max_hours_text">Maximum Hours per Week</label>
                             <input id="va_max_hours_text" class="modal-input" type="text" placeholder="e.g., 10">
                         </div>
+                        <div class="modal-step full" id="va-step-2">
+                            <label for="va_valid_id">Upload Valid ID (image)</label>
+                            <input id="va_valid_id" class="modal-input" type="file" accept="image/*">
+                        </div>
                         <div class="modal-step full" id="va-step-3">
                             <label>Volunteer Role Preferences</label>
-                            <div>
-                                <input type="checkbox" id="va_role_patrol"><label for="va_role_patrol" style="margin-left:6px;">Patrol Assistance</label>
-                                <input type="checkbox" id="va_role_event" style="margin-left:14px;"><label for="va_role_event" style="margin-left:6px;">Event & Crowd Management</label>
-                                <input type="checkbox" id="va_role_disaster" style="margin-left:14px;"><label for="va_role_disaster" style="margin-left:6px;">Disaster Response Support</label>
-                                <input type="checkbox" id="va_role_traffic" style="margin-left:14px;"><label for="va_role_traffic" style="margin-left:6px;">Traffic Assistance</label>
-                                <input type="checkbox" id="va_role_awareness" style="margin-left:14px;"><label for="va_role_awareness" style="margin-left:6px;">Awareness & Outreach Activities</label>
+                            <div class="option-list">
+                                <div><input type="checkbox" id="va_role_patrol"><label for="va_role_patrol" style="margin-left:6px;">Patrol Assistance</label></div>
+                                <div><input type="checkbox" id="va_role_event"><label for="va_role_event" style="margin-left:6px;">Event & Crowd Management</label></div>
+                                <div><input type="checkbox" id="va_role_disaster"><label for="va_role_disaster" style="margin-left:6px;">Disaster Response Support</label></div>
+                                <div><input type="checkbox" id="va_role_traffic"><label for="va_role_traffic" style="margin-left:6px;">Traffic Assistance</label></div>
+                                <div><input type="checkbox" id="va_role_awareness"><label for="va_role_awareness" style="margin-left:6px;">Awareness & Outreach Activities</label></div>
                             </div>
                         </div>
                         <div class="modal-step full" id="va-step-3">
                             <label>Relevant Skills</label>
-                            <div>
-                                <input type="checkbox" id="va_skill_firstaid"><label for="va_skill_firstaid" style="margin-left:6px;">First Aid / CPR</label>
-                                <input type="checkbox" id="va_skill_safety" style="margin-left:14px;"><label for="va_skill_safety" style="margin-left:6px;">Security / Safety Training</label>
-                                <input type="checkbox" id="va_skill_communication" style="margin-left:14px;"><label for="va_skill_communication" style="margin-left:6px;">Communication Skills</label>
-                                <input type="checkbox" id="va_skill_crowd" style="margin-left:14px;"><label for="va_skill_crowd" style="margin-left:6px;">Crowd Control</label>
-                                <input type="checkbox" id="va_skill_it" style="margin-left:14px;"><label for="va_skill_it" style="margin-left:6px;">IT / Computer Skills</label>
-                                <input type="checkbox" id="va_skill_driving" style="margin-left:14px;"><label for="va_skill_driving" style="margin-left:6px;">Driving (with license)</label>
+                            <div class="option-list">
+                                <div><input type="checkbox" id="va_skill_firstaid"><label for="va_skill_firstaid" style="margin-left:6px;">First Aid / CPR</label></div>
+                                <div><input type="checkbox" id="va_skill_safety"><label for="va_skill_safety" style="margin-left:6px;">Security / Safety Training</label></div>
+                                <div><input type="checkbox" id="va_skill_communication"><label for="va_skill_communication" style="margin-left:6px;">Communication Skills</label></div>
+                                <div><input type="checkbox" id="va_skill_crowd"><label for="va_skill_crowd" style="margin-left:6px;">Crowd Control</label></div>
+                                <div><input type="checkbox" id="va_skill_it"><label for="va_skill_it" style="margin-left:6px;">IT / Computer Skills</label></div>
+                                <div><input type="checkbox" id="va_skill_driving"><label for="va_skill_driving" style="margin-left:6px;">Driving (with license)</label></div>
                             </div>
                         </div>
                         <div class="modal-step full" id="va-step-3">
@@ -1823,26 +2075,6 @@ $stmt = null;
                         <button type="submit" class="primary-button" id="volunteer-submit-btn" style="display:none;">Submit Application</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    </div>
-    <div id="watch-apply-modal" class="modal-overlay">
-        <div class="card modal-card">
-            <div class="card-content" style="padding:20px;">
-                <div class="modal-header">
-                    <h2 class="card-title">Join Watch Group</h2>
-                    <button class="secondary-button" id="watch-apply-close">Close</button>
-                </div>
-                <div class="modal-body">
-                    <div class="modal-step full" id="wg-step-1">
-                        <label>Confirm Application</label>
-                        <div style="grid-column:1/-1;padding-top:4px;">This will submit your request to join the watch group.</div>
-                    </div>
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="secondary-button" id="watch-apply-cancel">Cancel</button>
-                    <button type="button" class="primary-button" id="watch-apply-submit">Apply Now!!</button>
-                </div>
             </div>
         </div>
     </div>
@@ -1971,6 +2203,9 @@ $stmt = null;
                                     <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cmp_urgency_medium">Medium (disturbance affecting community)</label>
                                     <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="cmp_urgency_high">High (immediate danger or emergency)</label>
                                 </div>
+                            </div>
+                            <div class="modal-step full" style="margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                                <label style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="complaint_consent" required> I confirm that the information provided is true and accurate to the best of my knowledge</label>
                             </div>
                         </div>
                         <div class="modal-step full" id="cf-step-3">
@@ -2341,10 +2576,8 @@ $stmt = null;
         const joinWatchSection = document.getElementById('join-watch-section');
         const joinWatchBackBtn = document.getElementById('join-watch-back-btn');
         const joinWatchApplyBtn = document.getElementById('join-watch-apply-btn');
-        const watchApplyModal = document.getElementById('watch-apply-modal');
-        const watchApplyClose = document.getElementById('watch-apply-close');
-        const watchApplyCancel = document.getElementById('watch-apply-cancel');
-        const watchApplySubmit = document.getElementById('watch-apply-submit');
+        const joinSuccessBubble = document.getElementById('join-success-bubble');
+        const volunteerSubmitBubble = document.getElementById('volunteer-success-bubble');
         const watchScheduleLink = document.getElementById('watch-schedule-link');
         const watchScheduleSection = document.getElementById('watch-schedule-section');
         const watchScheduleBackBtn = document.getElementById('watch-schedule-back-btn');
@@ -2488,31 +2721,45 @@ $stmt = null;
             renderAnonContacts();
             renderAnonChat();
         }
-        function renderComplaintStatus(){
+        async function renderComplaintStatus(){
             if (!complaintStatusTbody) return;
             complaintStatusTbody.innerHTML = '';
-            let items = [];
-            try { items = JSON.parse(localStorage.getItem('complaints') || '[]'); } catch(e){ items = []; }
-            if (!items || items.length === 0){
+            try{
+                const fd = new FormData();
+                fd.append('action','complaint_list');
+                const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                const data = await res.json();
+                const items = (data && data.success && Array.isArray(data.complaints)) ? data.complaints : [];
+                if (!items.length){
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.colSpan = 5;
+                    td.style.padding = '14px';
+                    td.textContent = 'No complaints submitted yet.';
+                    tr.appendChild(td);
+                    complaintStatusTbody.appendChild(tr);
+                    return;
+                }
+                items.forEach(c=>{
+                    const tr = document.createElement('tr');
+                    function tdWith(text){ const td=document.createElement('td'); td.style.padding='10px'; td.textContent=text; return td; }
+                    tr.appendChild(tdWith(c.id || '—'));
+                    tr.appendChild(tdWith(c.issue || '—'));
+                    const dt = c.submitted_at ? new Date(c.submitted_at).toLocaleString() : '—';
+                    tr.appendChild(tdWith(dt));
+                    tr.appendChild(tdWith(c.location || '—'));
+                    tr.appendChild(tdWith((String(c.status||'').toLowerCase()==='resolved') ? 'Resolved' : 'Pending'));
+                    complaintStatusTbody.appendChild(tr);
+                });
+            }catch(_){
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
                 td.colSpan = 5;
                 td.style.padding = '14px';
-                td.textContent = 'No complaints submitted yet.';
+                td.textContent = 'Failed to load complaints.';
                 tr.appendChild(td);
                 complaintStatusTbody.appendChild(tr);
-                return;
             }
-            items.forEach(c=>{
-                const tr = document.createElement('tr');
-                function tdWith(text){ const td=document.createElement('td'); td.style.padding='10px'; td.textContent=text; return td; }
-                tr.appendChild(tdWith(c.id || '—'));
-                tr.appendChild(tdWith(c.type || '—'));
-                tr.appendChild(tdWith(c.time || '—'));
-                tr.appendChild(tdWith(c.location || '—'));
-                tr.appendChild(tdWith(c.status || 'Pending'));
-                complaintStatusTbody.appendChild(tr);
-            });
         }
         function showComplaintStatusSection(){
             if (dashboardSection) dashboardSection.style.display = 'none';
@@ -3152,17 +3399,58 @@ $stmt = null;
                 closeAnonymousTipModal();
             });
         }
-        function openWatchApplyModal(){
-            if (watchApplyModal) watchApplyModal.style.display = 'flex';
-        }
-        function closeWatchApplyModal(){
-            if (watchApplyModal) watchApplyModal.style.display = 'none';
-        }
         if (volunteerForm){
-            volunteerForm.addEventListener('submit', function(e){
+            volunteerForm.addEventListener('submit', async function(e){
                 e.preventDefault();
-                localStorage.setItem('volunteer_joined','true');
-                closeVolunteerModal();
+                function checked(id){ const el=document.getElementById(id); return !!(el && el.checked); }
+                function collect(list){ return list.filter(checked).map(id=>id.replace(/^va_(role|skill|time|day)_/,'').replace(/^va_/,'')).join(','); }
+                const preferredDays = [
+                    checked('va_days_weekdays') ? 'Weekdays' : '',
+                    checked('va_days_weekends') ? 'Weekends' : ''
+                ].filter(Boolean).join(',');
+                const timeSlots = [
+                    checked('va_time_morning') ? 'Morning' : '',
+                    checked('va_time_afternoon') ? 'Afternoon' : '',
+                    checked('va_time_evening') ? 'Evening' : '',
+                    checked('va_time_night') ? 'Night' : ''
+                ].filter(Boolean).join(',');
+                const fd = new FormData();
+                fd.append('action','apply_volunteer');
+                fd.append('preferred_days', preferredDays);
+                fd.append('time_slots', timeSlots);
+                fd.append('night_duty', checked('va_night_yes') ? '1' : (checked('va_night_no') ? '0' : ''));
+                fd.append('preferred_zone', (document.getElementById('va_zone_text')?.value || '').trim());
+                fd.append('max_hours', (document.getElementById('va_max_hours_text')?.value || '').trim());
+                const rolePrefs = collect(['va_role_patrol','va_role_event','va_role_disaster','va_role_traffic','va_role_awareness']);
+                fd.append('role_prefs', rolePrefs);
+                const skills = collect(['va_skill_firstaid','va_skill_safety','va_skill_communication','va_skill_crowd','va_skill_it','va_skill_driving']);
+                fd.append('skills', skills);
+                fd.append('previous_volunteer', checked('va_prev_yes') ? '1' : (checked('va_prev_no') ? '0' : ''));
+                fd.append('prev_org', (document.getElementById('va_prev_org')?.value || '').trim());
+                fd.append('years_experience', (document.getElementById('va_prev_years')?.value || '').trim());
+                fd.append('physical_fit', checked('va_fit_yes') ? '1' : (checked('va_fit_no') ? '0' : ''));
+                fd.append('medical_conditions', (document.getElementById('va_medical_cond')?.value || '').trim());
+                fd.append('long_period', checked('va_longperiod_yes') ? '1' : (checked('va_longperiod_no') ? '0' : ''));
+                const validIdEl = document.getElementById('va_valid_id');
+                if (validIdEl && validIdEl.files && validIdEl.files[0]) {
+                    fd.append('valid_id', validIdEl.files[0]);
+                }
+                try {
+                    const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json().catch(()=>({success:true}));
+                    if (data && data.success) {
+                        localStorage.setItem('volunteer_joined','true');
+                        if (volunteerSubmitBubble){
+                            volunteerSubmitBubble.style.display = 'block';
+                            setTimeout(function(){ volunteerSubmitBubble.style.display = 'none'; }, 3000);
+                        }
+                        closeVolunteerModal();
+                    } else {
+                        alert('Failed to submit volunteer application');
+                    }
+                } catch (err) {
+                    alert('Network error submitting application');
+                }
             });
         }
         if (joinWatchLink){
@@ -3190,28 +3478,26 @@ $stmt = null;
             });
         }
         if (joinWatchApplyBtn){
-            joinWatchApplyBtn.addEventListener('click', function(e){
+            joinWatchApplyBtn.addEventListener('click', async function(e){
                 e.preventDefault();
-                openWatchApplyModal();
-            });
-        }
-        if (watchApplyClose){
-            watchApplyClose.addEventListener('click', function(e){
-                e.preventDefault();
-                closeWatchApplyModal();
-            });
-        }
-        if (watchApplyCancel){
-            watchApplyCancel.addEventListener('click', function(e){
-                e.preventDefault();
-                closeWatchApplyModal();
-            });
-        }
-        if (watchApplySubmit){
-            watchApplySubmit.addEventListener('click', function(e){
-                e.preventDefault();
+                try {
+                    const res = await fetch('user_dashboard.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ action: 'join_watch' }),
+                        credentials: 'same-origin'
+                    });
+                    await res.json().catch(()=>({success:true}));
+                } catch (_) {}
                 localStorage.setItem('watch_group_joined','true');
-                closeWatchApplyModal();
+                if (joinSuccessBubble){
+                    joinSuccessBubble.style.display = 'block';
+                    setTimeout(function(){ joinSuccessBubble.style.display = 'none'; }, 3000);
+                }
+                if (joinWatchApplyBtn){
+                    joinWatchApplyBtn.disabled = true;
+                    joinWatchApplyBtn.textContent = 'Joined';
+                }
             });
         }
         if (messagesContactSearch){
@@ -3231,14 +3517,29 @@ $stmt = null;
                     incidentOtherField.style.display = incidentTypeSelect.value === 'other' ? 'block' : 'none';
                 });
             }
-            suspiciousForm.addEventListener('submit', function(e){
+            suspiciousForm.addEventListener('submit', async function(e){
                 e.preventDefault();
+                const fd = new FormData();
+                fd.append('action','quick_report');
+                fd.append('type', document.getElementById('incident_type')?.value || '');
+                fd.append('other', document.getElementById('incident_other')?.value || '');
+                fd.append('location', document.getElementById('incident_location')?.value || '');
+                fd.append('description', document.getElementById('incident_desc')?.value || '');
+                const p = document.getElementById('incident_photo')?.files?.[0];
+                const v = document.getElementById('incident_video')?.files?.[0];
+                if (p) fd.append('photo', p);
+                if (v) fd.append('video', v);
+                try{
+                    const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    await res.json().catch(()=>({success:true}));
+                }catch(_){}
                 closeSuspiciousModal();
             });
         }
         if (complaintForm){
-            complaintForm.addEventListener('submit', function(e){
+            complaintForm.addEventListener('submit', async function(e){
                 e.preventDefault();
+                const submitBtn = document.getElementById('complaint-submit-btn');
                 const types = [];
                 if (document.getElementById('cmp_type_noise')?.checked) types.push('Noise Disturbance');
                 if (document.getElementById('cmp_type_public')?.checked) types.push('Public Safety Issue');
@@ -3248,41 +3549,62 @@ $stmt = null;
                 const otherChecked = !!document.getElementById('cmp_type_others')?.checked;
                 const otherText = document.getElementById('complaint_other')?.value || '';
                 if (otherChecked && otherText) types.push('Other: ' + otherText);
-                const type = types.length ? types.join(', ') : '';
-                
-                const timeEl = document.getElementById('complaint_time');
-                const time = timeEl ? timeEl.value : '';
+                const category = types.length ? types.join(', ') : 'General';
                 const locEl = document.getElementById('complaint_location');
                 const location = locEl ? locEl.value : '';
                 const descEl = document.getElementById('complaint_description');
                 const description = descEl ? descEl.value : '';
                 const anonEl = document.getElementById('complaint_anonymous');
-                const anonymous = anonEl ? !!anonEl.checked : false;
+                const anonymous = anonEl ? (!!anonEl.checked ? '1' : '0') : '0';
                 const urgLow = document.getElementById('cmp_urgency_low')?.checked;
                 const urgMed = document.getElementById('cmp_urgency_medium')?.checked;
                 const urgHigh = document.getElementById('cmp_urgency_high')?.checked;
                 const urgency = urgHigh ? 'High' : (urgMed ? 'Medium' : (urgLow ? 'Low' : ''));
                 const consent = !!document.getElementById('complaint_consent')?.checked;
-                if (!consent) return;
-                const photoName = (document.getElementById('complaint_photo')?.files?.[0]?.name) || '';
-                const videoName = (document.getElementById('complaint_video')?.files?.[0]?.name) || '';
-                const name = document.getElementById('cf_fullname')?.value || '';
-                const address = document.getElementById('cf_address')?.value || '';
-                const contact = document.getElementById('cf_contact')?.value || '';
-                const email = document.getElementById('cf_email')?.value || '';
-                const id = 'C-' + Date.now();
-                let items = [];
-                try { items = JSON.parse(localStorage.getItem('complaints') || '[]'); } catch(e){ items = []; }
-                items.push({
-                    id, type, time, location, description, anonymous, status:'Pending',
-                    urgency, photoName, videoName,
-                    name: anonymous ? '' : name,
-                    address: anonymous ? '' : address,
-                    contact: anonymous ? '' : contact,
-                    email: anonymous ? '' : email
-                });
-                localStorage.setItem('complaints', JSON.stringify(items));
+                if (!consent) { alert('Please confirm that you agree to the terms by checking the consent checkbox'); return; }
+                const fd = new FormData();
+                fd.append('action','submit_complaint');
+                fd.append('category', category);
+                fd.append('location', location);
+                fd.append('description', description);
+                fd.append('anonymous', anonymous);
+                fd.append('urgency', urgency);
+                const p = document.getElementById('complaint_photo')?.files?.[0];
+                const v = document.getElementById('complaint_video')?.files?.[0];
+                
+                // Validate file sizes before uploading
+                if (p && p.size > 10 * 1024 * 1024) { // 10MB limit for photos
+                    alert('Photo file size must be less than 10MB');
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
+                    return;
+                }
+                if (v && v.size > 50 * 1024 * 1024) { // 50MB limit for videos
+                    alert('Video file size must be less than 50MB');
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
+                    return;
+                }
+                
+                if (p) fd.append('photo', p);
+                if (v) fd.append('video', v);
+                try{
+                    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting...'; }
+                    const res = await fetch('user_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success) { 
+                        alert('Complaint submitted successfully'); 
+                    } else {
+                        const errorMsg = data && data.error ? `Server error: ${data.error}` : 'Failed to submit complaint. Please try again.';
+                        alert(errorMsg);
+                        console.error('Complaint submission failed:', data);
+                    }
+                }catch(error){
+                    alert('Error submitting complaint. Please check your connection and try again.');
+                    console.error('Complaint submission error:', error);
+                }
                 closeComplaintModal();
+                renderComplaintStatus();
+                if (typeof showComplaintStatusSection === 'function') { showComplaintStatusSection(); }
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit'; }
             });
         }
         if (eventRegistrationLink){
@@ -3316,7 +3638,7 @@ $stmt = null;
             });
         }
         if (eventRegistrationForm){
-            eventRegistrationForm.addEventListener('submit', function(e){
+            eventRegistrationForm.addEventListener('submit', async function(e){
                 e.preventDefault();
                 const nameEl = document.getElementById('er_fullname');
                 const addrEl = document.getElementById('er_address');
@@ -3342,6 +3664,24 @@ $stmt = null;
                     skills,
                     volunteer
                 };
+                try {
+                    const res = await fetch('user_dashboard.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({
+                            action: 'event_register',
+                            name: record.name,
+                            address: record.address,
+                            contact: record.contact,
+                            email: record.email,
+                            type: record.type,
+                            skills: record.skills.join(','),
+                            volunteer: record.volunteer ? '1' : '0'
+                        }),
+                        credentials: 'same-origin'
+                    });
+                    await res.json().catch(()=>({success:true}));
+                } catch (_) {}
                 let items = [];
                 try { items = JSON.parse(localStorage.getItem('event_registrations') || '[]'); } catch(e){ items = []; }
                 items.push(record);
@@ -3605,6 +3945,8 @@ $stmt = null;
             if (nextBtn) nextBtn.style.display = currentFormStep < 3 ? 'inline-block' : 'none';
             if (submitBtn) submitBtn.style.display = currentFormStep === 3 ? 'inline-block' : 'none';
             if (stepIndicator) stepIndicator.textContent = 'Page ' + currentFormStep + ' of 3';
+            const bodyEl = document.querySelector('#volunteer-modal .modal-body');
+            if (bodyEl) bodyEl.style.gridTemplateColumns = currentFormStep === 3 ? '1fr' : '1fr 1fr';
         }
         if (nextBtn){
             nextBtn.addEventListener('click', function(){
