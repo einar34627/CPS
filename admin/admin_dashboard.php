@@ -285,6 +285,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>false,'error'=>'Failed to update status']);
                 exit();
             }
+        } elseif ($action === 'events_create') {
+            $title = trim($_POST['title'] ?? '');
+            $event_date = trim($_POST['date'] ?? '');
+            $event_time = trim($_POST['time'] ?? '');
+            $location = trim($_POST['location'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            if ($title === '' || $event_date === '') { echo json_encode(['success'=>false,'error'=>'Title and date are required']); exit(); }
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS events (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    event_date DATE NOT NULL,
+                    event_time VARCHAR(16) DEFAULT NULL,
+                    location VARCHAR(255) DEFAULT NULL,
+                    description TEXT DEFAULT NULL,
+                    status VARCHAR(32) DEFAULT 'Scheduled',
+                    created_by INT DEFAULT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                $stmt = $pdo->prepare("INSERT INTO events (title, event_date, event_time, location, description, status, created_by) VALUES (?, ?, ?, ?, ?, 'Scheduled', ?)");
+                $stmt->execute([$title, $event_date, ($event_time !== '' ? $event_time : null), ($location !== '' ? $location : null), ($description !== '' ? $description : null), $uid]);
+                $id = (int)$pdo->lastInsertId();
+                echo json_encode(['success'=>true,'event'=>[
+                    'id'=>$id,
+                    'title'=>$title,
+                    'event_date'=>$event_date,
+                    'event_time'=>$event_time,
+                    'location'=>$location,
+                    'status'=>'Scheduled',
+                    'created_at'=>date('Y-m-d H:i:s')
+                ]]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to create event']);
+                exit();
+            }
         } elseif ($action === 'volunteer_set_status') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $status = strtolower(trim($_POST['status'] ?? 'accepted'));
@@ -466,7 +502,7 @@ $stmt = null;
 
     $complaints = [];
     try {
-        $stmtC = $pdo->prepare("SELECT id, resident, issue, category, location, submitted_at, status, anonymous FROM complaints ORDER BY submitted_at DESC LIMIT 500");
+        $stmtC = $pdo->prepare("SELECT id, resident, issue, category, location, submitted_at, status, anonymous, photo_url, video_url FROM complaints ORDER BY submitted_at DESC LIMIT 500");
         $stmtC->execute([]);
         $complaints = $stmtC->fetchAll(PDO::FETCH_ASSOC);
         $stmtC = null;
@@ -1214,6 +1250,8 @@ $stmt = null;
                             <tr>
                                 <th>Member</th>
                                 <th>Status</th>
+                                <th>Date</th>
+                                <th>Time</th>
                                 <th>Zone</th>
                                 <th>Street</th>
                                 <th>Action</th>
@@ -1248,8 +1286,21 @@ $stmt = null;
                                             <span class="badge badge-inactive">Inactive</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td><input type="text" class="input-text zone-input" value="<?php echo $zoneVal; ?>" placeholder="Zone"></td>
-                                    <td><input type="text" class="input-text street-input" value="<?php echo $streetVal; ?>" placeholder="Street"></td>
+                                    <td><input type="date" class="input-text assign-date-input"></td>
+                                    <td><input type="time" class="input-text assign-time-input"></td>
+                                    <td>
+                                        <select class="input-text zone-input">
+                                            <option value="">Zone</option>
+                                            <option value="01" <?php if($zoneVal==='01') echo 'selected'; ?>>01</option>
+                                            <option value="02" <?php if($zoneVal==='02') echo 'selected'; ?>>02</option>
+                                            <option value="03" <?php if($zoneVal==='03') echo 'selected'; ?>>03</option>
+                                            <option value="04" <?php if($zoneVal==='04') echo 'selected'; ?>>04</option>
+                                            <option value="05" <?php if($zoneVal==='05') echo 'selected'; ?>>05</option>
+                                            <option value="06" <?php if($zoneVal==='06') echo 'selected'; ?>>06</option>
+                                            <option value="07" <?php if($zoneVal==='07') echo 'selected'; ?>>07</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="input-text street-input" list="street-options" value="<?php echo $streetVal; ?>" placeholder="Street"></td>
                                     <td class="assign-controls">
                                         <button class="primary-button assign-btn">Assign</button>
                                     </td>
@@ -1257,11 +1308,132 @@ $stmt = null;
                             <?php endforeach; ?>
                             <?php if (empty($watch_members)): ?>
                                 <tr>
-                                    <td colspan="5">No watch group members found.</td>
+                                    <td colspan="7">No watch group members found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    <datalist id="street-options">
+                        <option value="A. Bonifacio">
+                        <option value="Abelardo">
+                        <option value="Adarna ST">
+                        <option value="Aguinaldo">
+                        <option value="Apple St">
+                        <option value="Bacer St">
+                        <option value="Bach">
+                        <option value="Batasan Rd">
+                        <option value="Bato-Bato St">
+                        <option value="Beethoven">
+                        <option value="Bicoleyte">
+                        <option value="Brahms">
+                        <option value="Caridad">
+                        <option value="Chopin">
+                        <option value="Commonwealth Ave">
+                        <option value="Cuenco St">
+                        <option value="D. Carmencita">
+                        <option value="Dear St">
+                        <option value="Debussy">
+                        <option value="Don Benedicto">
+                        <option value="Don Desiderio Ave">
+                        <option value="Don Espejo Ave">
+                        <option value="Don Fabian">
+                        <option value="Don Jose Ave">
+                        <option value="Don Macario">
+                        <option value="Dona Adaucto">
+                        <option value="Dona Agnes">
+                        <option value="Dona Ana Candelaria">
+                        <option value="Dona Carmen Ave">
+                        <option value="Dona Cynthia">
+                        <option value="Dona Fabian Castillo">
+                        <option value="Dona Juliana">
+                        <option value="Dona Lucia">
+                        <option value="Dona Maria">
+                        <option value="Dona Severino">
+                        <option value="Ecol St">
+                        <option value="Elliptical Rd">
+                        <option value="Elma St">
+                        <option value="Ernestine">
+                        <option value="Ernestito">
+                        <option value="Eulogio St">
+                        <option value="Freedom Park">
+                        <option value="Gen. Evangelista">
+                        <option value="Gen. Ricarte">
+                        <option value="Geraldine St">
+                        <option value="Gold St">
+                        <option value="Grapes St">
+                        <option value="Handel">
+                        <option value="Hon. B. Soliven">
+                        <option value="Jasmin St">
+                        <option value="Johan St">
+                        <option value="John Street">
+                        <option value="Julius">
+                        <option value="June June">
+                        <option value="Kalapati St">
+                        <option value="Kamagong St">
+                        <option value="Kasoy St">
+                        <option value="Kasunduan">
+                        <option value="Katibayan St">
+                        <option value="Katipunan St">
+                        <option value="Katuparan">
+                        <option value="Kaunlaran">
+                        <option value="Kilyawan St">
+                        <option value="La Mesa Drive">
+                        <option value="Laurel St">
+                        <option value="Lawin St">
+                        <option value="Liszt">
+                        <option value="Lunas St">
+                        <option value="Ma Theresa">
+                        <option value="Mango">
+                        <option value="Manila Gravel Pit Rd">
+                        <option value="Mark Street">
+                        <option value="Markos Rd">
+                        <option value="Martan St">
+                        <option value="Martirez St">
+                        <option value="Matthew St">
+                        <option value="Melon">
+                        <option value="Mozart">
+                        <option value="Obanc St">
+                        <option value="Ocampo Ave">
+                        <option value="Odigal">
+                        <option value="Pacamara St">
+                        <option value="Pantaleona">
+                        <option value="Paul St">
+                        <option value="Payatas Rd">
+                        <option value="Perez St">
+                        <option value="Pilot Drive">
+                        <option value="Pineapple St">
+                        <option value="Pres. Osmena">
+                        <option value="Pres. Quezon">
+                        <option value="Pres. Roxas">
+                        <option value="Pugo St">
+                        <option value="Republic Ave">
+                        <option value="Riverside Ext">
+                        <option value="Riverside St">
+                        <option value="Rose St">
+                        <option value="Rossini">
+                        <option value="Saint Anthony Street">
+                        <option value="Saint Paul Street">
+                        <option value="San Andres St">
+                        <option value="San Diego St">
+                        <option value="San Miguel St">
+                        <option value="San Pascual">
+                        <option value="San Pedro">
+                        <option value="Sanchez St">
+                        <option value="Santo Nino Street">
+                        <option value="Santo Rosario Street">
+                        <option value="Schubert">
+                        <option value="Simon St">
+                        <option value="Skinita Shortcut">
+                        <option value="Steve St">
+                        <option value="Sto. Nino">
+                        <option value="Strauss">
+                        <option value="Sumapi Drive">
+                        <option value="Tabigo St">
+                        <option value="Thomas St">
+                        <option value="Verdi">
+                        <option value="Villonco">
+                        <option value="Wagner">
+                    </datalist>
                     <div class="details-panel" id="assign-details" style="display:none;"></div>
                 </div>
             </div>
@@ -1388,8 +1560,10 @@ $stmt = null;
                                     $at = htmlspecialchars($c['submitted_at'] ?? '');
                                     $st = htmlspecialchars($c['status'] ?? '');
                                     $label = strtolower($st) === 'resolved' ? 'Resolved' : 'Pending';
+                                    $photo = htmlspecialchars($c['photo_url'] ?? '');
+                                    $video = htmlspecialchars($c['video_url'] ?? '');
                                 ?>
-                                <tr class="complaint-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-cat="<?php echo $cat; ?>" data-loc="<?php echo $loc; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>">
+                                <tr class="complaint-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-cat="<?php echo $cat; ?>" data-loc="<?php echo $loc; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>" data-photo="<?php echo $photo; ?>" data-video="<?php echo $video; ?>">
                                     <td><?php echo $resident; ?></td>
                                     <td><?php echo $issueShort; ?></td>
                                     <td><?php echo $cat; ?></td>
@@ -1405,6 +1579,55 @@ $stmt = null;
                         </tbody>
                     </table>
                     <div class="details-panel" id="complaint-details" style="display:none;"></div>
+                    <div id="complaint-view-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:720px;max-width:92%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Complaint Details</div>
+                                <button class="secondary-button" id="complaint-view-close">Close</button>
+                            </div>
+                            <div style="padding:16px;display:grid;gap:12px;">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Resident</div>
+                                        <div id="cv-resident" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Category</div>
+                                        <div id="cv-category" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Location</div>
+                                        <div id="cv-location" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Submitted At</div>
+                                        <div id="cv-at" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Status</div>
+                                    <div id="cv-status" style="display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Issue</div>
+                                    <div id="cv-issue" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;max-height:220px;overflow:auto;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Attachments</div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                        <div id="cv-photo-wrap" style="display:none;">
+                                            <img id="cv-photo" src="" alt="Photo" style="width:100%;height:220px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+                                            <a id="cv-photo-download" href="#" download style="display:inline-block;margin-top:8px;">Download Photo</a>
+                                        </div>
+                                        <div id="cv-video-wrap" style="display:none;">
+                                            <video id="cv-video" controls style="width:100%;height:220px;border:1px solid #e5e7eb;border-radius:8px;background:#000;"></video>
+                                            <a id="cv-video-download" href="#" download style="display:inline-block;margin-top:8px;">Download Video</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="complaint-status-tracker-section">
@@ -1729,9 +1952,9 @@ $stmt = null;
             <div class="content-section" id="route-mapping-section">
                 <div class="assign-card">
                     <div class="registry-header">
-                        <div class="registry-title">Route Mapping</div>
+                        <div class="registry-title">Route Monitoring</div>
                     </div>
-                    <iframe id="route-mapping-frame" src="Route%20Mapping.php" title="Route Mapping" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <iframe id="route-mapping-frame" src="Route%20Mapping.php" title="Route Monitoring (Commonwealth)" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
                 </div>
             </div>
             <div class="content-section" id="gps-tracking-section">
@@ -2021,7 +2244,80 @@ $stmt = null;
                         <div class="registry-title">Event Scheduling</div>
                         <button class="secondary-button" id="event-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="event-scheduling-frame" src="Event%20Sheduling.php" title="Event Scheduling" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <?php
+                        $events = [];
+                        try {
+                            $pdo->exec("CREATE TABLE IF NOT EXISTS events (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                title VARCHAR(255) NOT NULL,
+                                event_date DATE NOT NULL,
+                                event_time VARCHAR(16) DEFAULT NULL,
+                                location VARCHAR(255) DEFAULT NULL,
+                                description TEXT DEFAULT NULL,
+                                status VARCHAR(32) DEFAULT 'Scheduled',
+                                created_by INT DEFAULT NULL,
+                                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                            $ev_stmt = $pdo->prepare("SELECT id, title, event_date, event_time, location, status, created_at FROM events ORDER BY event_date ASC, event_time ASC, id DESC LIMIT 500");
+                            $ev_stmt->execute([]);
+                            $events = $ev_stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $ev_stmt = null;
+                        } catch (Exception $e) { $events = []; }
+                    ?>
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+                        <button class="primary-button" id="create-event-btn">Create Event</button>
+                    </div>
+                    <table class="assign-table" id="events-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (!empty($events)): ?>
+                                <?php foreach ($events as $ev): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($ev['title'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['event_date'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['event_time'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['location'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['status'] ?? 'Scheduled'); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['created_at'] ?? ''); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr><td colspan="6">No events scheduled yet.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                    
+                    <div id="event-create-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:640px;max-width:92%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Create Event</div>
+                                <button class="secondary-button" id="event-create-close">Close</button>
+                            </div>
+                            <form id="event-create-form" style="padding:16px;display:grid;gap:12px;">
+                                <input class="modal-input" type="text" name="title" placeholder="Event title" required>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <input class="modal-input" type="date" name="date" required>
+                                    <input class="modal-input" type="time" name="time">
+                                </div>
+                                <input class="modal-input" type="text" name="location" placeholder="Location">
+                                <textarea class="modal-input" name="description" rows="4" placeholder="Description"></textarea>
+                                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                                    <button type="button" class="secondary-button" id="event-create-cancel">Cancel</button>
+                                    <button type="submit" class="primary-button" id="event-create-submit">Create</button>
+                                </div>
+                                <div id="event-create-status" style="margin-top:8px;font-weight:500;"></div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="feedback-section">
@@ -3257,6 +3553,53 @@ $stmt = null;
                 document.getElementById('home-section').style.display = 'block';
             });
         }
+        
+        const createEventBtn = document.getElementById('create-event-btn');
+        const eventCreateForm = document.getElementById('event-create-form');
+        const eventCreateClose = document.getElementById('event-create-close');
+        const eventCreateCancel = document.getElementById('event-create-cancel');
+        const eventsTableBody = document.querySelector('#events-table tbody');
+        const eventCreateStatus = document.getElementById('event-create-status');
+        if (createEventBtn) {
+            createEventBtn.addEventListener('click', function(){ openModal('event-create-modal'); });
+        }
+        if (eventCreateClose) {
+            eventCreateClose.addEventListener('click', function(){ closeModal('event-create-modal'); if (eventCreateStatus) eventCreateStatus.textContent=''; });
+        }
+        if (eventCreateCancel) {
+            eventCreateCancel.addEventListener('click', function(){ closeModal('event-create-modal'); if (eventCreateForm) eventCreateForm.reset(); if (eventCreateStatus) eventCreateStatus.textContent=''; });
+        }
+        if (eventCreateForm) {
+            eventCreateForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                if (eventCreateStatus) eventCreateStatus.textContent = '';
+                const fd = new FormData(eventCreateForm);
+                fd.append('action','events_create');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success) {
+                        closeModal('event-create-modal');
+                        if (eventCreateForm) eventCreateForm.reset();
+                        if (eventsTableBody) {
+                            const tr = document.createElement('tr');
+                            const td1=document.createElement('td'); td1.textContent = data.event.title || '';
+                            const td2=document.createElement('td'); td2.textContent = data.event.event_date || '';
+                            const td3=document.createElement('td'); td3.textContent = data.event.event_time || '';
+                            const td4=document.createElement('td'); td4.textContent = data.event.location || '';
+                            const td5=document.createElement('td'); td5.textContent = data.event.status || 'Scheduled';
+                            const td6=document.createElement('td'); td6.textContent = data.event.created_at || '';
+                            tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5); tr.appendChild(td6);
+                            eventsTableBody.insertBefore(tr, eventsTableBody.firstChild);
+                        }
+                    } else {
+                        if (eventCreateStatus) eventCreateStatus.textContent = (data && data.error) ? data.error : 'Failed to create event';
+                    }
+                }catch(_){
+                    if (eventCreateStatus) eventCreateStatus.textContent = 'Network error. Please try again.';
+                }
+            });
+        }
 
         const feedbackBack = document.getElementById('feedback-back');
         if (feedbackBack) {
@@ -3796,8 +4139,12 @@ $stmt = null;
                 if (row) {
                     const zi = row.querySelector('.zone-input');
                     const si = row.querySelector('.street-input');
+                    const di = row.querySelector('.assign-date-input');
+                    const ti = row.querySelector('.assign-time-input');
                     if (zi) zi.value = a.zone || '';
                     if (si) si.value = a.street || '';
+                    if (di) di.value = a.date || '';
+                    if (ti) ti.value = a.time || '';
                 }
             });
             assignTable.addEventListener('click', function(e){
@@ -3809,11 +4156,13 @@ $stmt = null;
                 const status = row.getAttribute('data-status');
                 const zone = row.querySelector('.zone-input').value.trim();
                 const street = row.querySelector('.street-input').value.trim();
+                const date = (row.querySelector('.assign-date-input').value || '').trim();
+                const time = (row.querySelector('.assign-time-input').value || '').trim();
                 const summary = document.getElementById('assign-details');
                 summary.style.display = 'block';
-                summary.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${status}</div><div style="margin-top:10px;">Zone: ${zone || '—'} | Street: ${street || '—'}</div></div>`;
+                summary.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${status}</div><div style="margin-top:10px;">Date: ${date || '—'} | Time: ${time || '—'}</div><div style="margin-top:10px;">Zone: ${zone || '—'} | Street: ${street || '—'}</div></div>`;
                 const existingIndex = savedAssignments.findIndex(x => String(x.id) === String(id));
-                const payload = { id, zone, street };
+                const payload = { id, zone, street, date, time };
                 if (existingIndex >= 0) savedAssignments[existingIndex] = payload; else savedAssignments.push(payload);
                 localStorage.setItem('bwc_assignments', JSON.stringify(savedAssignments));
             });
@@ -3912,18 +4261,66 @@ $stmt = null;
         const complaintTable = document.getElementById('complaint-table');
         if (complaintTable) {
             complaintTable.addEventListener('click', function(e){
+                const viewBtn = e.target.closest('.complaint-view-btn');
                 const row = e.target.closest('.complaint-row');
-                if (!row) return;
-                const panel = document.getElementById('complaint-details');
-                panel.style.display = 'block';
+                if (!row || !viewBtn) return;
                 const name = row.getAttribute('data-resident');
                 const issue = row.getAttribute('data-issue');
                 const cat = row.getAttribute('data-cat');
                 const loc = row.getAttribute('data-loc');
                 const at = row.getAttribute('data-at');
                 const status = row.getAttribute('data-status');
-                panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${cat} • ${loc}</div><div style="margin-top:10px;">${issue}</div><div style="margin-top:10px;">Submitted: ${at}</div><div style="margin-top:10px;" class="badge ${status==='Resolved'?'badge-resolved':'badge-pending'}">${status}</div></div>`;
+                const photo = row.getAttribute('data-photo') || '';
+                const video = row.getAttribute('data-video') || '';
+                const resEl = document.getElementById('cv-resident');
+                const issueEl = document.getElementById('cv-issue');
+                const catEl = document.getElementById('cv-category');
+                const locEl = document.getElementById('cv-location');
+                const atEl = document.getElementById('cv-at');
+                const stEl = document.getElementById('cv-status');
+                const phWrap = document.getElementById('cv-photo-wrap');
+                const phEl = document.getElementById('cv-photo');
+                const phDl = document.getElementById('cv-photo-download');
+                const vdWrap = document.getElementById('cv-video-wrap');
+                const vdEl = document.getElementById('cv-video');
+                const vdDl = document.getElementById('cv-video-download');
+                if (resEl) resEl.textContent = name || '—';
+                if (issueEl) issueEl.textContent = issue || '—';
+                if (catEl) catEl.textContent = cat || '—';
+                if (locEl) locEl.textContent = loc || '—';
+                if (atEl) atEl.textContent = at || '—';
+                if (stEl) {
+                    stEl.textContent = status || 'Pending';
+                    stEl.className = status === 'Resolved' ? 'badge badge-resolved' : 'badge badge-pending';
+                }
+                if (phWrap && phEl && phDl) {
+                    if (photo) {
+                        phWrap.style.display = 'block';
+                        phEl.src = photo;
+                        phDl.href = photo;
+                    } else {
+                        phWrap.style.display = 'none';
+                        phEl.src = '';
+                        phDl.href = '#';
+                    }
+                }
+                if (vdWrap && vdEl && vdDl) {
+                    if (video) {
+                        vdWrap.style.display = 'block';
+                        vdEl.src = video;
+                        vdDl.href = video;
+                    } else {
+                        vdWrap.style.display = 'none';
+                        vdEl.src = '';
+                        vdDl.href = '#';
+                    }
+                }
+                openModal('complaint-view-modal');
             });
+        }
+        const complaintViewClose = document.getElementById('complaint-view-close');
+        if (complaintViewClose) {
+            complaintViewClose.addEventListener('click', function(){ closeModal('complaint-view-modal'); });
         }
 
         const statusBack = document.getElementById('status-back');

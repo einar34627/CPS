@@ -669,6 +669,8 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                     <button class="btn btn-outline" type="button" id="clear-route"><i class='bx bx-trash'></i>Clear</button>
                     <button class="btn btn-outline" type="button" id="finish-route"><i class='bx bx-current-location'></i>Fit to Route</button>
                     <button class="btn btn-outline" type="button" id="sample-route"><i class='bx bx-map'></i>Sample Path</button>
+                    <button class="btn btn-outline" type="button" id="fit-commonwealth"><i class='bx bx-map-pin'></i>Commonwealth</button>
+                    <button class="btn btn-outline" type="button" id="toggle-color"><i class='bx bx-palette'></i>Color Map</button>
                 </div>
             </div>
         </div>
@@ -757,7 +759,7 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
 
             try {
                 map = L.map('route-map', {
-                    center: [14.6970, 121.0880],
+                    center: [14.699559507379297, 121.08189215372691],
                     zoom: 16,
                     zoomControl: true,
                     attributionControl: true
@@ -772,8 +774,17 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                     errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
                 }).addTo(map);
                 
-                const pinned = [14.6970, 121.0880];
+                const pinned = [14.699559507379297, 121.08189215372691];
                 L.marker(pinned).addTo(map);
+                
+                const commonwealthBounds = [
+                    [14.7055, 121.0790],
+                    [14.7055, 121.0925],
+                    [14.6950, 121.0925],
+                    [14.6950, 121.0790]
+                ];
+                const commonwealth = L.polygon(commonwealthBounds, { color: '#e11d48', weight: 2, fillColor: '#fecdd3', fillOpacity: 0.25 }).addTo(map);
+                map.fitBounds(commonwealth.getBounds(), { padding: [24, 24] });
                 
                 function adjustOverlay() {
                     const h = window.innerHeight || document.documentElement.clientHeight || 800;
@@ -832,6 +843,77 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
             let waypointMarkerObjs = [];
             const searchLayer = L.layerGroup().addTo(map);
             const flashAlert = document.querySelector('.alert-error');
+            const fitCommonwealthBtn = document.getElementById('fit-commonwealth');
+            if (fitCommonwealthBtn) {
+                fitCommonwealthBtn.addEventListener('click', function(){
+                    const polys = [];
+                    map.eachLayer(function(l){
+                        if (l instanceof L.Polygon) polys.push(l);
+                    });
+                    const target = polys[0];
+                    if (target && target.getBounds) {
+                        map.fitBounds(target.getBounds(), { padding: [24, 24] });
+                    }
+                });
+            }
+            const colorZones = L.layerGroup().addTo(map);
+            let colorOn = true;
+            function drawColorZones(){
+                colorZones.clearLayers();
+                const yellow = [
+                    [14.7008,121.0792],
+                    [14.7012,121.0828],
+                    [14.6998,121.0841],
+                    [14.6982,121.0830],
+                    [14.6976,121.0810],
+                    [14.6992,121.0794]
+                ];
+                const orange = [
+                    [14.7048,121.0795],
+                    [14.7048,121.0862],
+                    [14.7018,121.0868],
+                    [14.6995,121.0860],
+                    [14.6975,121.0845],
+                    [14.6972,121.0805],
+                    [14.6998,121.0790]
+                ];
+                const brownSouth = [
+                    [14.6982,121.0868],
+                    [14.7015,121.0875],
+                    [14.7015,121.0908],
+                    [14.6998,121.0918],
+                    [14.6980,121.0900]
+                ];
+                const brownNorth = [
+                    [14.7035,121.0868],
+                    [14.7052,121.0898],
+                    [14.7042,121.0922],
+                    [14.7026,121.0910],
+                    [14.7026,121.0878]
+                ];
+                const corridor = [
+                    [14.6968,121.0856],
+                    [14.6984,121.0860],
+                    [14.7000,121.0863],
+                    [14.7018,121.0866],
+                    [14.7034,121.0869],
+                    [14.7046,121.0872]
+                ];
+                L.polygon(yellow,{color:'#f59e0b',weight:2,fillColor:'#fde68a',fillOpacity:0.4}).addTo(colorZones);
+                L.polygon(orange,{color:'#fb923c',weight:2,fillColor:'#fed7aa',fillOpacity:0.35}).addTo(colorZones);
+                L.polygon(brownSouth,{color:'#92400e',weight:2,fillColor:'#e5e7eb',fillOpacity:0.3}).addTo(colorZones);
+                L.polygon(brownNorth,{color:'#92400e',weight:2,fillColor:'#e5e7eb',fillOpacity:0.3}).addTo(colorZones);
+                L.polyline(corridor,{color:'#db2777',weight:8,opacity:0.8}).addTo(colorZones);
+            }
+            drawColorZones();
+            const toggleColorBtn = document.getElementById('toggle-color');
+            if (toggleColorBtn){
+                toggleColorBtn.addEventListener('click',function(){
+                    colorOn = !colorOn;
+                    colorZones.clearLayers();
+                    if (colorOn) drawColorZones();
+                });
+            }
 
         function computeDistance(points) {
             if (points.length < 2) return 0;
