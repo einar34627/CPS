@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>true,'users'=>$rows]);
                 exit();
             } catch (Exception $e) {
-                echo json_encode(['success'=>false,'error'=>'Failed to load users']);
+                echo json_encode(['success'=>false,'error'=>'Failed to load users']); 
                 exit();
             }
         } elseif ($action === 'user_create') {
@@ -119,6 +119,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             } catch (Exception $e) {
                 echo json_encode(['success'=>false,'error'=>'Failed to create user']);
+                exit();
+            }
+        } elseif ($action === 'user_set_verified') {
+            $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            $status = strtolower(trim($_POST['status'] ?? 'approved'));
+            if ($id <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid ID']); exit(); }
+            $mapped = ($status === 'approved' || $status === 'active') ? 1 : 0; // declined or pending -> 0
+            try {
+                $stmt = $pdo->prepare("UPDATE users SET is_verified = ? WHERE id = ?");
+                $stmt->execute([$mapped, $id]);
+                echo json_encode(['success'=>true,'is_verified'=>$mapped]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to update verification']);
                 exit();
             }
         } elseif ($action === 'profile_get') {
@@ -285,6 +299,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>false,'error'=>'Failed to update status']);
                 exit();
             }
+        } elseif ($action === 'events_create') {
+            $title = trim($_POST['title'] ?? '');
+            $event_date = trim($_POST['date'] ?? '');
+            $event_time = trim($_POST['time'] ?? '');
+            $location = trim($_POST['location'] ?? '');
+            $description = trim($_POST['description'] ?? '');
+            if ($title === '' || $event_date === '') { echo json_encode(['success'=>false,'error'=>'Title and date are required']); exit(); }
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS events (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    event_date DATE NOT NULL,
+                    event_time VARCHAR(16) DEFAULT NULL,
+                    location VARCHAR(255) DEFAULT NULL,
+                    description TEXT DEFAULT NULL,
+                    status VARCHAR(32) DEFAULT 'Scheduled',
+                    created_by INT DEFAULT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                $stmt = $pdo->prepare("INSERT INTO events (title, event_date, event_time, location, description, status, created_by) VALUES (?, ?, ?, ?, ?, 'Scheduled', ?)");
+                $stmt->execute([$title, $event_date, ($event_time !== '' ? $event_time : null), ($location !== '' ? $location : null), ($description !== '' ? $description : null), $uid]);
+                $id = (int)$pdo->lastInsertId();
+                echo json_encode(['success'=>true,'event'=>[
+                    'id'=>$id,
+                    'title'=>$title,
+                    'event_date'=>$event_date,
+                    'event_time'=>$event_time,
+                    'location'=>$location,
+                    'status'=>'Scheduled',
+                    'created_at'=>date('Y-m-d H:i:s')
+                ]]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to create event']);
+                exit();
+            }
         } elseif ($action === 'volunteer_set_status') {
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             $status = strtolower(trim($_POST['status'] ?? 'accepted'));
@@ -333,6 +383,168 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success'=>false,'error'=>'Failed to update event registration status']);
                 exit();
             }
+        } elseif ($action === 'face_recognition_train') {
+            // Train face recognition model
+            $name = trim($_POST['name'] ?? '');
+            $role = trim($_POST['role'] ?? '');
+            $imageData = $_POST['image_data'] ?? '';
+            
+            if ($name === '' || $imageData === '') {
+                echo json_encode(['success'=>false,'error'=>'Missing required data']);
+                exit();
+            }
+            
+            try {
+                // Create faces directory if not exists
+                $facesDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'faces' . DIRECTORY_SEPARATOR . 'training';
+                if (!is_dir($facesDir)) {
+                    mkdir($facesDir, 0775, true);
+                }
+                
+                // Save image
+                $imageData = str_replace('data:image/png;base64,', '', $imageData);
+                $imageData = str_replace(' ', '+', $imageData);
+                $imageBinary = base64_decode($imageData);
+                
+                $filename = 'face_' . time() . '_' . bin2hex(random_bytes(4)) . '.png';
+                $filepath = $facesDir . DIRECTORY_SEPARATOR . $filename;
+                
+                if (file_put_contents($filepath, $imageBinary)) {
+                    // Save to database
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS face_recognition_data (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        name VARCHAR(255) NOT NULL,
+                        role VARCHAR(100),
+                        image_path VARCHAR(500) NOT NULL,
+                        trained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_name (name),
+                        INDEX idx_user_id (user_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                    
+                    $stmt = $pdo->prepare("INSERT INTO face_recognition_data (user_id, name, role, image_path) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$uid, $name, $role, 'faces/training/' . $filename]);
+                    
+                    // Train the model
+                    $pythonScript = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'python' . DIRECTORY_SEPARATOR . 'face_recognition_lbph.py';
+                    $command = escapeshellcmd('python3 "' . $pythonScript . '" --train');
+                    $output = shell_exec($command);
+                    
+                    echo json_encode(['success'=>true, 'message'=>'Face trained successfully', 'output'=>$output]);
+                } else {
+                    echo json_encode(['success'=>false,'error'=>'Failed to save image']);
+                }
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to train face: ' . $e->getMessage()]);
+                exit();
+            }
+        } elseif ($action === 'face_recognition_predict') {
+            // Predict face from image
+            $imageData = $_POST['image_data'] ?? '';
+            
+            if ($imageData === '') {
+                echo json_encode(['success'=>false,'error'=>'No image data provided']);
+                exit();
+            }
+            
+            try {
+                // Save temporary image
+                $tempDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'faces' . DIRECTORY_SEPARATOR . 'temp';
+                if (!is_dir($tempDir)) {
+                    mkdir($tempDir, 0775, true);
+                }
+                
+                $imageData = str_replace('data:image/png;base64,', '', $imageData);
+                $imageData = str_replace(' ', '+', $imageData);
+                $imageBinary = base64_decode($imageData);
+                
+                $tempFile = $tempDir . DIRECTORY_SEPARATOR . 'predict_' . time() . '.png';
+                file_put_contents($tempFile, $imageBinary);
+                
+                // Run prediction
+                $pythonScript = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'python' . DIRECTORY_SEPARATOR . 'face_recognition_lbph.py';
+                $command = escapeshellcmd('python3 "' . $pythonScript . '" --predict "' . $tempFile . '"');
+                $output = shell_exec($command);
+                
+                // Parse output (assuming JSON format)
+                $result = json_decode(trim($output), true);
+                
+                // Clean up temp file
+                unlink($tempFile);
+                
+                if ($result && isset($result['success'])) {
+                    echo json_encode($result);
+                } else {
+                    echo json_encode(['success'=>false,'error'=>'Prediction failed', 'raw_output'=>$output]);
+                }
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Prediction error: ' . $e->getMessage()]);
+                exit();
+            }
+        } elseif ($action === 'face_recognition_list') {
+            // List all trained faces
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS face_recognition_data (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    role VARCHAR(100),
+                    image_path VARCHAR(500) NOT NULL,
+                    trained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                
+                $stmt = $pdo->prepare("SELECT id, name, role, image_path, trained_at FROM face_recognition_data ORDER BY trained_at DESC");
+                $stmt->execute();
+                $faces = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                echo json_encode(['success'=>true, 'faces'=>$faces]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to load faces']);
+                exit();
+            }
+        } elseif ($action === 'face_recognition_delete') {
+            // Delete a trained face
+            $faceId = isset($_POST['face_id']) ? (int)$_POST['face_id'] : 0;
+            
+            if ($faceId <= 0) {
+                echo json_encode(['success'=>false,'error'=>'Invalid face ID']);
+                exit();
+            }
+            
+            try {
+                // Get face data
+                $stmt = $pdo->prepare("SELECT image_path FROM face_recognition_data WHERE id = ?");
+                $stmt->execute([$faceId]);
+                $face = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($face) {
+                    // Delete image file
+                    $imagePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . $face['image_path'];
+                    if (file_exists($imagePath)) {
+                        unlink($imagePath);
+                    }
+                    
+                    // Delete from database
+                    $stmt = $pdo->prepare("DELETE FROM face_recognition_data WHERE id = ?");
+                    $stmt->execute([$faceId]);
+                    
+                    // Retrain model
+                    $pythonScript = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'python' . DIRECTORY_SEPARATOR . 'face_recognition_lbph.py';
+                    $command = escapeshellcmd('python3 "' . $pythonScript . '" --train');
+                    $output = shell_exec($command);
+                    
+                    echo json_encode(['success'=>true, 'message'=>'Face deleted and model retrained']);
+                } else {
+                    echo json_encode(['success'=>false,'error'=>'Face not found']);
+                }
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to delete face']);
+                exit();
+            }
         }
         echo json_encode(['success'=>false,'error'=>'Unknown action']);
         exit();
@@ -346,7 +558,6 @@ if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit();
 }
-
 
 $user_id = $_SESSION['user_id'];
 $query = "SELECT first_name, middle_name, last_name, role, avatar_url, email, username, contact, address, date_of_birth FROM users WHERE id = ?";
@@ -381,7 +592,6 @@ if ($user) {
     }
     $full_name .= " " . $last_name;
 } else {
-
     $full_name = "User";
     $role = "USER";
     $avatar_path = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
@@ -398,6 +608,9 @@ $stmt = null;
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
     <link rel="icon" type="image/png" sizes="32x32" href="../img/cpas-logo.png">
     <link rel="stylesheet" href="../css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-detection@1.0.0/dist/face-detection.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <?php
     try {
         $colExists = false;
@@ -466,7 +679,7 @@ $stmt = null;
 
     $complaints = [];
     try {
-        $stmtC = $pdo->prepare("SELECT id, resident, issue, category, location, submitted_at, status, anonymous FROM complaints ORDER BY submitted_at DESC LIMIT 500");
+        $stmtC = $pdo->prepare("SELECT id, resident, issue, category, location, submitted_at, status, anonymous, photo_url, video_url FROM complaints ORDER BY submitted_at DESC LIMIT 500");
         $stmtC->execute([]);
         $complaints = $stmtC->fetchAll(PDO::FETCH_ASSOC);
         $stmtC = null;
@@ -543,6 +756,8 @@ $stmt = null;
         .badge-inactive { background:#f3f4f6; color:#6b7280; }
         .badge-pending { background:#fff7ed; color:#c2410c; }
         .badge-resolved { background:#ecfdf5; color:#047857; }
+        .badge-unknown { background:#fef2f2; color:#dc2626; }
+        .badge-recognized { background:#dbeafe; color:#1d4ed8; }
         .content-section { display:none; }
         #home-section { display:block; }
         .details-panel { margin-top:16px; padding:16px; border-radius:12px; background: rgba(0,0,0,0.03); }
@@ -576,6 +791,51 @@ $stmt = null;
         .settings-item-desc { font-size:12px; color: var(--text-light); }
         .settings-danger { margin-top:16px; padding:16px; border-radius:12px; background: #fee2e2; color:#b91c1c; border:1px solid #fecaca; }
         .settings-danger-title { font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+        
+        /* Face Recognition Styles */
+        .face-recognition-container { display: flex; flex-direction: column; gap: 20px; }
+        .face-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
+        .face-recognition-status { margin-bottom: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px; border: 1px solid #dbeafe; }
+        .video-container { display: flex; gap: 20px; margin-bottom: 20px; }
+        .video-container > div { flex: 1; }
+        .video-feed { position: relative; width: 100%; height: 70vh; background: #000; border-radius: 8px; overflow: hidden; }
+        .video-feed video { width: 100%; height: 100%; display: block; object-fit: cover; }
+        .video-feed canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .video-close { position: absolute; top: 12px; right: 12px; z-index: 20; background: rgba(0,0,0,0.6); color: #fff; padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer; }
+        .video-close:hover { background: rgba(0,0,0,0.75); }
+        .face-detection-info { padding: 15px; background: #f9fafb; border-radius: 0 0 8px 8px; }
+        .recognized-faces-list { max-height: 400px; overflow-y: auto; }
+        .detection-log { max-height: 200px; overflow-y: auto; font-size: 14px; }
+        .face-training-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .face-training-content { background: white; width: 500px; border-radius: 12px; padding: 20px; }
+        .face-preview { width: 100px; height: 100px; border-radius: 50%; background: #e5e7eb; display: flex; align-items: center; justify-content: center; overflow: hidden; margin: 0 auto 20px; }
+        .face-preview img { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* Face bounding box animations */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        
+        .face-box { 
+            position: absolute;
+            border: 3px solid #3b82f6;
+            border-radius: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        .face-label {
+            position: absolute;
+            background: #3b82f6;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            transform: translateY(-100%);
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -603,151 +863,137 @@ $stmt = null;
                 <span class="logo-text">Community Policing and Surveillance</span>
             </div>
             
-          <!-- Menu Section -->
-<div class="menu-section">
-    <p class="menu-title">COMMUNITY POLICING AND SURVEILLANCE</p>
-    
-    <div class="menu-items">
-        <a href="#" class="menu-item active" id="dashboard-menu">
-            <div class="icon-box icon-bg-red">
-                <i class='bx bxs-dashboard icon-red'></i>
+            <!-- Menu Section -->
+            <div class="menu-section">
+                <p class="menu-title">COMMUNITY POLICING AND SURVEILLANCE</p>
+                
+                <div class="menu-items">
+                    <a href="#" class="menu-item active" id="dashboard-menu">
+                        <div class="icon-box icon-bg-red">
+                            <i class='bx bxs-dashboard icon-red'></i>
+                        </div>
+                        <span class="font-medium">Dashboard</span>
+                    </a>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('fire-incident')">
+                        <div class="icon-box icon-bg-orange">
+                            <i class='bx bxs-alarm-exclamation icon-orange'></i>
+                        </div>
+                        <span class="font-medium">Barangay Watch Coordination</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="fire-incident" class="submenu">
+                        <a href="#" class="submenu-item" data-target="member-registry-section">Member Registry</a>
+                        <a href="#" class="submenu-item" data-target="observation-logging-section">Observation Logging</a>
+                        <a href="#" class="submenu-item" data-target="patrol-assignment-section">Patrol Assignment</a>
+                    </div>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('volunteer')">
+                        <div class="icon-box icon-bg-blue">
+                            <i class='bx bxs-user-detail icon-blue'></i>
+                        </div>
+                        <span class="font-medium">CCTV Monitoring Management</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="volunteer" class="submenu">
+                        <a href="#" class="submenu-item" data-target="live-viewer-section">Live Viewer</a>
+                        <a href="#" class="submenu-item" data-target="evidence-archive-section">Evidence Archive</a>
+                    </div>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('inventory')">
+                        <div class="icon-box icon-bg-green">
+                            <i class='bx bxs-cube icon-green'></i>
+                        </div>
+                        <span class="font-medium">Complaint Logging Management</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="inventory" class="submenu">
+                        <a href="#" class="submenu-item" data-target="complaint-online-form-section">Online Form</a>
+                        <a href="#" class="submenu-item" data-target="complaint-status-tracker-section">Status Tracker</a>
+                        <a href="#" class="submenu-item" data-target="complaint-analytics-section">Analytics</a>
+                    </div>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('schedule')">
+                        <div class="icon-box icon-bg-purple">
+                            <i class='bx bxs-calendar icon-purple'></i>
+                        </div>
+                        <span class="font-medium">Volunteer and Tanod Availability Management</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="schedule" class="submenu">
+                        <a href="#" class="submenu-item" data-target="volunteer-registry-db-section">Volunteer Registry Database</a>
+                        <a href="#" class="submenu-item" data-target="duty-roster-section">Duty Roster</a>
+                        <a href="#" class="submenu-item" data-target="attendance-logs-section">Attendance Logs</a>
+                        <a href="#" class="submenu-item" data-target="task-assignment-section">Task Assignment</a>
+                    </div>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('training')">
+                        <div class="icon-box icon-bg-teal">
+                            <i class='bx bxs-graduation icon-teal'></i>
+                        </div>
+                        <span class="font-medium">Patrol Route and Activity Monitoring</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="training" class="submenu">
+                        <a href="#" class="submenu-item" data-target="route-mapping-section">Route Monitoring</a>
+                        <a href="#" class="submenu-item" id="gps-tracking-link" data-target="gps-tracking-section">GPS Tracking</a>
+                        <a href="#" class="submenu-item" data-target="summary-report-section">Summary Reports</a>
+                    </div>
+                    
+                    <div class="menu-item" onclick="toggleSubmenu('inspection')">
+                        <div class="icon-box icon-bg-yellow">
+                            <i class='bx bxs-check-shield icon-yellow'></i>
+                        </div>
+                        <span class="font-medium">Awareness and Event Tracking</span>
+                        <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div id="inspection" class="submenu">
+                        <a href="#" class="submenu-item" data-target="registration-system-section">Registration System</a>
+                        <a href="#" class="submenu-item" data-target="event-scheduling-section">Event Scheduling</a>
+                        <a href="#" class="submenu-item" data-target="feedback-section">Feedback</a>
+                    </div>
+                    <a href="#" class="menu-item" id="user-menu">
+                        <div class="icon-box icon-bg-purple">
+                            <i class='bx bxs-user icon-purple'></i>
+                        </div>
+                        <span class="font-medium">User</span>
+                    </a>
+                </div>
+                
+                <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
+                
+                <div class="menu-items">
+                    <div class="menu-item" id="sidebar-settings-btn">
+                        <div class="icon-box icon-bg-teal">
+                            <i class='bx bxs-cog icon-teal'></i>
+                        </div>
+                        <span class="font-medium">Settings</span>
+                    </div>
+                    <div id="sidebar-settings-submenu" class="submenu">
+                        <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
+                        <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
+                    </div>
+                    
+                    <a href="../includes/logout.php" class="menu-item">
+                        <div class="icon-box icon-bg-red">
+                            <i class='bx bx-log-out icon-red'></i>
+                        </div>
+                        <span class="font-medium">Logout</span>
+                    </a>
+                </div>
             </div>
-            <span class="font-medium">Dashboard</span>
-        </a>
-        
-        <div class="menu-item" onclick="toggleSubmenu('fire-incident')">
-            <div class="icon-box icon-bg-orange">
-                <i class='bx bxs-alarm-exclamation icon-orange'></i>
-            </div>
-            <span class="font-medium">Barangay Watch Coordination</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="fire-incident" class="submenu">
-            <a href="#" class="submenu-item">Member Registry</a>
-            <a href="#" class="submenu-item">Observation Logging</a>
-            <a href="#" class="submenu-item">Patrol Assignment</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('volunteer')">
-            <div class="icon-box icon-bg-blue">
-                <i class='bx bxs-user-detail icon-blue'></i>
-            </div>
-            <span class="font-medium">CCTV Monitoring Management</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="volunteer" class="submenu">
-            <a href="#" class="submenu-item">Live Viewer</a>
-            <a href="#" class="submenu-item">Evidence Archive</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('inventory')">
-            <div class="icon-box icon-bg-green">
-                <i class='bx bxs-cube icon-green'></i>
-            </div>
-            <span class="font-medium">Complaint Logging Management</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="inventory" class="submenu">
-            <a href="#" class="submenu-item">Online Form</a>
-            <a href="#" class="submenu-item">Status Tracker</a>
-            <a href="#" class="submenu-item">Analytics</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('schedule')">
-            <div class="icon-box icon-bg-purple">
-                <i class='bx bxs-calendar icon-purple'></i>
-            </div>
-            <span class="font-medium">Volunteer and Tanod Availability Management</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="schedule" class="submenu">
-            <a href="#" class="submenu-item">Volunteer Registry Database</a>
-            <a href="#" class="submenu-item">Duty Roster</a>
-            <a href="#" class="submenu-item">Attendance Logs</a>
-            <a href="#" class="submenu-item">Task Assignment</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('training')">
-            <div class="icon-box icon-bg-teal">
-                <i class='bx bxs-graduation icon-teal'></i>
-            </div>
-            <span class="font-medium">Patrol Route and Activity Monitoring</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="training" class="submenu">
-            <a href="#" class="submenu-item">Route Monitoring</a>
-            <a href="#" class="submenu-item" id="gps-tracking-link" data-target="gps-tracking-section">GPS Tracking</a>
-            <a href="#" class="submenu-item">Summary Reports</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('inspection')">
-            <div class="icon-box icon-bg-yellow">
-                <i class='bx bxs-check-shield icon-yellow'></i>
-            </div>
-            <span class="font-medium">Awareness and Event Tracking</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="inspection" class="submenu">
-            <a href="#" class="submenu-item">Registration System</a>
-            <a href="#" class="submenu-item">Event Scheduling</a>
-            <a href="#" class="submenu-item">Feedback</a>
-        </div>
-        
-        <div class="menu-item" onclick="toggleSubmenu('postincident')">
-            <div class="icon-box icon-bg-pink">
-                <i class='bx bxs-file-doc icon-pink'></i>
-            </div>
-            <span class="font-medium">Anonymous Feedback and Tip Line</span>
-            <svg class="dropdown-arrow menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-            </svg>
-        </div>
-        <div id="postincident" class="submenu">
-            <a href="#" class="submenu-item">Tip Portal</a>
-            <a href="#" class="submenu-item">Message Encryption</a>
-        </div>
-        <a href="#" class="menu-item" id="user-menu">
-            <div class="icon-box icon-bg-purple">
-                <i class='bx bxs-user icon-purple'></i>
-            </div>
-            <span class="font-medium">User</span>
-        </a>
-    </div>
-    
-    <p class="menu-title" style="margin-top: 32px;">GENERAL</p>
-    
-    <div class="menu-items">
-        <div class="menu-item" id="sidebar-settings-btn">
-            <div class="icon-box icon-bg-teal">
-                <i class='bx bxs-cog icon-teal'></i>
-            </div>
-            <span class="font-medium">Settings</span>
-        </div>
-        <div id="sidebar-settings-submenu" class="submenu">
-            <a href="#" class="submenu-item" id="sidebar-settings-profile-link" data-target="settings-profile-section">Profile</a>
-            <a href="#" class="submenu-item" id="sidebar-settings-security-link" data-target="settings-security-section">Security</a>
-        </div>
-        
-        <a href="../includes/logout.php" class="menu-item">
-            <div class="icon-box icon-bg-red">
-                <i class='bx bx-log-out icon-red'></i>
-            </div>
-            <span class="font-medium">Logout</span>
-        </a>
-    </div>
-</div>
         </div>
         
         <!-- Main Content -->
@@ -794,16 +1040,17 @@ $stmt = null;
                             </div>
                         </div>
                         <div class="user-profile">
-                             <img src="<?php echo htmlspecialchars($avatar_path); ?>" alt="User" class="user-avatar">
+                            <img src="<?php echo htmlspecialchars($avatar_path); ?>" alt="User" class="user-avatar">
                             <div class="user-info">
                                 <p class="user-name"><?php echo $full_name; ?></p>
                                 <p class="user-email"><?php echo $role; ?></p>
-                          </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
             
+            <!-- Home Section -->
             <div class="dashboard-content content-section" id="home-section">
                 <div class="dashboard-header">
                     <div>
@@ -1023,7 +1270,6 @@ $stmt = null;
                         </div>
                     </div>
                     
-                   
                     <div class="right-column">
                         <div class="card">
                             <h2 class="card-title">System Alerts</h2>
@@ -1119,49 +1365,289 @@ $stmt = null;
                     </div>
                 </div>
             </div>
+            
+            <!-- Face Recognition Live Viewer Section -->
+            <div class="content-section" id="live-viewer-section">
+                <div class="assign-card">
+                    <div class="registry-header">
+                        <div class="registry-title">CCTV Live Viewer with Face Recognition</div>
+                        <button class="secondary-button" id="live-back">Back to Dashboard</button>
+                    </div>
+                    
+                    <div class="face-recognition-container">
+                        <!-- Camera Selection and Controls -->
+                        <div class="face-controls">
+                            <select id="camera-select" class="modal-input" style="flex: 1;">
+                                <option value="">Select Camera...</option>
+                                <option value="default">Default Camera</option>
+                                <option value="device1">Camera 1</option>
+                                <option value="device2">Camera 2</option>
+                            </select>
+                            <button id="start-camera" class="primary-button">Start Camera</button>
+                            <button id="stop-camera" class="secondary-button">Stop Camera</button>
+                            <button id="capture-snapshot" class="secondary-button">Capture Snapshot</button>
+                            <button id="train-new-face" class="primary-button">Train New Face</button>
+                        </div>
+                        
+                        <!-- Face Recognition Status -->
+                        <div class="face-recognition-status">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>Face Recognition Status:</strong>
+                                    <span id="recognition-status-text" style="margin-left: 10px; color: #059669;">Ready</span>
+                                </div>
+                                <div>
+                                    <button id="toggle-recognition" class="primary-button">Enable Recognition</button>
+                                    <button id="view-trained-faces" class="secondary-button" style="margin-left: 10px;">View Trained Faces</button>
+                                </div>
+                            </div>
+                            <div id="detection-stats" style="margin-top: 10px; font-size: 14px; color: #6b7280;">
+                                Faces detected: <span id="face-count">0</span> | Recognized: <span id="recognized-count">0</span> | Unknown: <span id="unknown-count">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Video Feed Container -->
+                        <div class="video-container">
+                            <div style="flex: 2;">
+                                <div class="card" style="padding: 0; overflow: hidden;">
+                                    <div class="card-title" style="padding: 15px; background: #1f2937; color: white;">
+                                        Live CCTV Feed with Face Detection
+                                    </div>
+                                    <div class="video-feed">
+                                        <button id="close-live-view" class="video-close">Close ×</button>
+                                        <!-- Video element for live stream -->
+                                        <video id="live-video" autoplay playsinline 
+                                               style="width: 100%; height: 100%; background: #000; display: none; object-fit: cover;"></video>
+                                        
+                                        <!-- Canvas for face detection overlay -->
+                                        <canvas id="face-canvas"></canvas>
+                                        
+                                        <!-- Fallback if video fails -->
+                                        <div id="video-fallback" style="text-align: center; padding: 40px; background: #f3f4f6;">
+                                            <p>Camera feed will appear here when started</p>
+                                            <p><small>Click "Start Camera" to begin</small></p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Live detection info -->
+                                    <div id="live-detection-info" style="padding: 15px; background: #f9fafb; display: none;">
+                                        <div style="display: flex; gap: 15px; align-items: center;">
+                                            <div id="current-face" style="width: 60px; height: 60px; border-radius: 50%; 
+                                                  background: #e5e7eb; display: flex; align-items: center; justify-content: center;">
+                                                <i class='bx bx-user' style="font-size: 30px; color: #6b7280;"></i>
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <div id="detected-name" style="font-weight: 600; font-size: 18px;">No face detected</div>
+                                                <div id="detection-confidence" style="color: #6b7280;">Confidence: 0%</div>
+                                            </div>
+                                            <div id="detection-status" style="padding: 5px 10px; border-radius: 20px; 
+                                                  background: #f3f4f6; color: #6b7280;">Unknown</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Sidebar for recognized faces and logs -->
+                            <div style="flex: 1;">
+                                <div class="card">
+                                    <h2 class="card-title">Recent Recognitions</h2>
+                                    <div id="recognized-faces-list" class="recognized-faces-list">
+                                        <!-- Will be populated dynamically -->
+                                        <div style="text-align: center; padding: 20px; color: #6b7280;">
+                                            No faces recognized yet
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card" style="margin-top: 20px;">
+                                    <h2 class="card-title">Detection Log</h2>
+                                    <div id="detection-log" class="detection-log">
+                                        <!-- Log entries will be added here -->
+                                        <div style="padding: 8px; border-bottom: 1px solid #f1f5f9;">
+                                            <div style="display: flex; justify-content: space-between;">
+                                                <span>System ready</span>
+                                                <span style="color: #6b7280;"><?php echo date('H:i:s'); ?></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Trained Faces Management -->
+                        <div class="card" id="trained-faces-section" style="display: none;">
+                            <div class="registry-header">
+                                <div class="registry-title">Trained Faces Management</div>
+                                <button class="secondary-button" id="close-trained-faces">Close</button>
+                            </div>
+                            <div id="trained-faces-list" style="margin-top: 15px;">
+                                <!-- Will be populated with trained faces -->
+                                <div style="text-align: center; padding: 20px; color: #6b7280;">
+                                    Loading trained faces...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Face Training Modal -->
+            <div id="face-training-modal" class="face-training-modal">
+                <div class="face-training-content">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h3 style="margin:0;">Train New Face</h3>
+                        <button id="close-training-modal" class="secondary-button" style="padding:5px 10px;">×</button>
+                    </div>
+                    
+                    <div style="margin-bottom:20px;">
+                        <div style="margin-bottom:10px;">
+                            <label style="display:block; margin-bottom:5px; font-weight:600;">Name</label>
+                            <input type="text" id="face-name" class="modal-input" placeholder="Enter person's name">
+                        </div>
+                        <div style="margin-bottom:10px;">
+                            <label style="display:block; margin-bottom:5px; font-weight:600;">Role/Position</label>
+                            <input type="text" id="face-role" class="modal-input" placeholder="Enter role/position">
+                        </div>
+                    </div>
+                    
+                    <div style="text-align:center; margin-bottom:20px;">
+                        <video id="training-video" autoplay playsinline 
+                               style="width:100%; max-width:320px; background:#000; border-radius:8px; display:none;"></video>
+                        <canvas id="training-canvas" style="display:none;"></canvas>
+                        <div id="training-preview" style="display:none;">
+                            <div class="face-preview">
+                                <img id="captured-face">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display:flex; gap:10px; justify-content:center;">
+                        <button id="start-training-camera" class="primary-button">Start Training Camera</button>
+                        <button id="capture-training-face" class="secondary-button" style="display:none;">Capture Face</button>
+                    </div>
+                    
+                    <div id="training-status" style="margin-top:15px; text-align:center;"></div>
+                    
+                    <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+                        <button id="cancel-training" class="secondary-button">Cancel</button>
+                        <button id="save-training" class="primary-button" style="display:none;">Save Face</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Other sections remain the same... -->
             <div class="content-section" id="member-registry-section">
                 <div class="registry-card">
                     <div class="registry-header">
                         <div class="registry-title">Member Registry</div>
                         <button class="secondary-button" id="registry-back">Back to Dashboard</button>
                     </div>
-                    <table class="registry-table" id="registry-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Role</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($watch_members as $m): ?>
-                                <?php
-                                    $name = htmlspecialchars(trim(($m['first_name'] ?? '').' '.($m['middle_name'] ?? '').' '.($m['last_name'] ?? '')));
-                                    $email = htmlspecialchars($m['email'] ?? '');
-                                    $roleLabel = htmlspecialchars($m['role'] ?? '');
-                                    $statusLabel = (!empty($m['is_verified']) && (int)$m['is_verified'] === 1) ? 'Active' : 'Inactive';
-                                ?>
-                                <tr class="registry-row" data-id="<?php echo (int)$m['id']; ?>" data-name="<?php echo $name; ?>" data-email="<?php echo $email; ?>" data-role="<?php echo $roleLabel; ?>">
-                                    <td><?php echo $name; ?></td>
-                                    <td><?php echo $email; ?></td>
-                                    <td><span class="badge badge-role"><?php echo $roleLabel; ?></span></td>
-                                    <td>
-                                        <?php if ($statusLabel === 'Active'): ?>
-                                            <span class="badge badge-active">Active</span>
-                                        <?php else: ?>
-                                            <span class="badge badge-inactive">Inactive</span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                            <?php if (empty($watch_members)): ?>
+                    <?php
+                        $approved_count = 0;
+                        $pending_count = 0;
+                        foreach ($watch_members as $wm) {
+                            $isv = !empty($wm['is_verified']) && (int)$wm['is_verified'] === 1;
+                            if ($isv) { $approved_count++; } else { $pending_count++; }
+                        }
+                    ?>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                        <div class="card" style="flex:1; min-width:220px;">
+                            <h2 class="card-title">Approved</h2>
+                            <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+                                <span class="badge badge-active" id="approved-members-count"><?php echo $approved_count; ?></span>
+                                <span style="color:#6b7280;">members</span>
+                            </div>
+                        </div>
+                        <div class="card" style="flex:1; min-width:220px;">
+                            <h2 class="card-title">Pending</h2>
+                            <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+                                <span class="badge badge-pending" id="pending-members-count"><?php echo $pending_count; ?></span>
+                                <span style="color:#6b7280;">members</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card" style="margin-top:12px;">
+                        <h2 class="card-title">Pending Accounts</h2>
+                        <table class="registry-table" id="registry-pending-table" style="margin-top:8px;">
+                            <thead>
                                 <tr>
-                                    <td colspan="4">No watch group members found.</td>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($watch_members as $m): ?>
+                                    <?php
+                                        $name = htmlspecialchars(trim(($m['first_name'] ?? '').' '.($m['middle_name'] ?? '').' '.($m['last_name'] ?? '')));
+                                        $email = htmlspecialchars($m['email'] ?? '');
+                                        $roleLabel = htmlspecialchars($m['role'] ?? '');
+                                        $isVerified = (!empty($m['is_verified']) && (int)$m['is_verified'] === 1);
+                                    ?>
+                                    <?php if (!$isVerified): ?>
+                                        <tr class="registry-row" data-id="<?php echo (int)$m['id']; ?>" data-name="<?php echo $name; ?>" data-email="<?php echo $email; ?>" data-role="<?php echo $roleLabel; ?>" data-verified="0">
+                                            <td><?php echo $name; ?></td>
+                                            <td><?php echo $email; ?></td>
+                                            <td><span class="badge badge-role"><?php echo $roleLabel; ?></span></td>
+                                            <td><span class="badge badge-pending">Pending</span></td>
+                                            <td class="assign-controls">
+                                                <button class="primary-button registry-approve-btn">Approve</button>
+                                                <button class="secondary-button registry-decline-btn">Declined</button>
+                                                <button class="secondary-button registry-view-btn">View</button>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                                <?php if ($pending_count === 0): ?>
+                                    <tr><td colspan="5">No pending accounts.</td></tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="card" style="margin-top:12px;">
+                        <h2 class="card-title">Approved Accounts</h2>
+                        <table class="registry-table" id="registry-approved-table" style="margin-top:8px;">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($watch_members as $m): ?>
+                                    <?php
+                                        $name = htmlspecialchars(trim(($m['first_name'] ?? '').' '.($m['middle_name'] ?? '').' '.($m['last_name'] ?? '')));
+                                        $email = htmlspecialchars($m['email'] ?? '');
+                                        $roleLabel = htmlspecialchars($m['role'] ?? '');
+                                        $isVerified = (!empty($m['is_verified']) && (int)$m['is_verified'] === 1);
+                                    ?>
+                                    <?php if ($isVerified): ?>
+                                        <tr class="registry-row" data-id="<?php echo (int)$m['id']; ?>" data-name="<?php echo $name; ?>" data-email="<?php echo $email; ?>" data-role="<?php echo $roleLabel; ?>" data-verified="1">
+                                            <td><?php echo $name; ?></td>
+                                            <td><?php echo $email; ?></td>
+                                            <td><span class="badge badge-role"><?php echo $roleLabel; ?></span></td>
+                                            <td><span class="badge badge-active">Approved</span></td>
+                                            <td class="assign-controls">
+                                                <button class="secondary-button registry-decline-btn">Declined</button>
+                                                <button class="secondary-button registry-view-btn">View</button>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                                <?php if ($approved_count === 0): ?>
+                                    <tr><td colspan="5">No approved accounts.</td></tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
                     <div class="details-panel" id="registry-details" style="display:none;"></div>
                 </div>
             </div>
@@ -1228,6 +1714,8 @@ $stmt = null;
                             <tr>
                                 <th>Member</th>
                                 <th>Status</th>
+                                <th>Date</th>
+                                <th>Time</th>
                                 <th>Zone</th>
                                 <th>Street</th>
                                 <th>Action</th>
@@ -1262,8 +1750,21 @@ $stmt = null;
                                             <span class="badge badge-inactive">Inactive</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td><input type="text" class="input-text zone-input" value="<?php echo $zoneVal; ?>" placeholder="Zone"></td>
-                                    <td><input type="text" class="input-text street-input" value="<?php echo $streetVal; ?>" placeholder="Street"></td>
+                                    <td><input type="date" class="input-text assign-date-input"></td>
+                                    <td><input type="time" class="input-text assign-time-input"></td>
+                                    <td>
+                                        <select class="input-text zone-input">
+                                            <option value="">Zone</option>
+                                            <option value="01" <?php if($zoneVal==='01') echo 'selected'; ?>>01</option>
+                                            <option value="02" <?php if($zoneVal==='02') echo 'selected'; ?>>02</option>
+                                            <option value="03" <?php if($zoneVal==='03') echo 'selected'; ?>>03</option>
+                                            <option value="04" <?php if($zoneVal==='04') echo 'selected'; ?>>04</option>
+                                            <option value="05" <?php if($zoneVal==='05') echo 'selected'; ?>>05</option>
+                                            <option value="06" <?php if($zoneVal==='06') echo 'selected'; ?>>06</option>
+                                            <option value="07" <?php if($zoneVal==='07') echo 'selected'; ?>>07</option>
+                                        </select>
+                                    </td>
+                                    <td><input type="text" class="input-text street-input" list="street-options" value="<?php echo $streetVal; ?>" placeholder="Street"></td>
                                     <td class="assign-controls">
                                         <button class="primary-button assign-btn">Assign</button>
                                     </td>
@@ -1271,55 +1772,133 @@ $stmt = null;
                             <?php endforeach; ?>
                             <?php if (empty($watch_members)): ?>
                                 <tr>
-                                    <td colspan="5">No watch group members found.</td>
+                                    <td colspan="7">No watch group members found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    <datalist id="street-options">
+                        <option value="A. Bonifacio">
+                        <option value="Abelardo">
+                        <option value="Adarna ST">
+                        <option value="Aguinaldo">
+                        <option value="Apple St">
+                        <option value="Bacer St">
+                        <option value="Bach">
+                        <option value="Batasan Rd">
+                        <option value="Bato-Bato St">
+                        <option value="Beethoven">
+                        <option value="Bicoleyte">
+                        <option value="Brahms">
+                        <option value="Caridad">
+                        <option value="Chopin">
+                        <option value="Commonwealth Ave">
+                        <option value="Cuenco St">
+                        <option value="D. Carmencita">
+                        <option value="Dear St">
+                        <option value="Debussy">
+                        <option value="Don Benedicto">
+                        <option value="Don Desiderio Ave">
+                        <option value="Don Espejo Ave">
+                        <option value="Don Fabian">
+                        <option value="Don Jose Ave">
+                        <option value="Don Macario">
+                        <option value="Dona Adaucto">
+                        <option value="Dona Agnes">
+                        <option value="Dona Ana Candelaria">
+                        <option value="Dona Carmen Ave">
+                        <option value="Dona Cynthia">
+                        <option value="Dona Fabian Castillo">
+                        <option value="Dona Juliana">
+                        <option value="Dona Lucia">
+                        <option value="Dona Maria">
+                        <option value="Dona Severino">
+                        <option value="Ecol St">
+                        <option value="Elliptical Rd">
+                        <option value="Elma St">
+                        <option value="Ernestine">
+                        <option value="Ernestito">
+                        <option value="Eulogio St">
+                        <option value="Freedom Park">
+                        <option value="Gen. Evangelista">
+                        <option value="Gen. Ricarte">
+                        <option value="Geraldine St">
+                        <option value="Gold St">
+                        <option value="Grapes St">
+                        <option value="Handel">
+                        <option value="Hon. B. Soliven">
+                        <option value="Jasmin St">
+                        <option value="Johan St">
+                        <option value="John Street">
+                        <option value="Julius">
+                        <option value="June June">
+                        <option value="Kalapati St">
+                        <option value="Kamagong St">
+                        <option value="Kasoy St">
+                        <option value="Kasunduan">
+                        <option value="Katibayan St">
+                        <option value="Katipunan St">
+                        <option value="Katuparan">
+                        <option value="Kaunlaran">
+                        <option value="Kilyawan St">
+                        <option value="La Mesa Drive">
+                        <option value="Laurel St">
+                        <option value="Lawin St">
+                        <option value="Liszt">
+                        <option value="Lunas St">
+                        <option value="Ma Theresa">
+                        <option value="Mango">
+                        <option value="Manila Gravel Pit Rd">
+                        <option value="Mark Street">
+                        <option value="Markos Rd">
+                        <option value="Martan St">
+                        <option value="Martirez St">
+                        <option value="Matthew St">
+                        <option value="Melon">
+                        <option value="Mozart">
+                        <option value="Obanc St">
+                        <option value="Ocampo Ave">
+                        <option value="Odigal">
+                        <option value="Pacamara St">
+                        <option value="Pantaleona">
+                        <option value="Paul St">
+                        <option value="Payatas Rd">
+                        <option value="Perez St">
+                        <option value="Pilot Drive">
+                        <option value="Pineapple St">
+                        <option value="Pres. Osmena">
+                        <option value="Pres. Quezon">
+                        <option value="Pres. Roxas">
+                        <option value="Pugo St">
+                        <option value="Republic Ave">
+                        <option value="Riverside Ext">
+                        <option value="Riverside St">
+                        <option value="Rose St">
+                        <option value="Rossini">
+                        <option value="Saint Anthony Street">
+                        <option value="Saint Paul Street">
+                        <option value="San Andres St">
+                        <option value="San Diego St">
+                        <option value="San Miguel St">
+                        <option value="San Pascual">
+                        <option value="San Pedro">
+                        <option value="Sanchez St">
+                        <option value="Santo Nino Street">
+                        <option value="Santo Rosario Street">
+                        <option value="Schubert">
+                        <option value="Simon St">
+                        <option value="Skinita Shortcut">
+                        <option value="Steve St">
+                        <option value="Sto. Nino">
+                        <option value="Strauss">
+                        <option value="Sumapi Drive">
+                        <option value="Tabigo St">
+                        <option value="Thomas St">
+                        <option value="Verdi">
+                        <option value="Villonco">
+                        <option value="Wagner">
+                    </datalist>
                     <div class="details-panel" id="assign-details" style="display:none;"></div>
-                </div>
-            </div>
-            <div class="content-section" id="live-viewer-section">
-                <div class="assign-card">
-                    <div class="registry-header">
-                        <div class="registry-title">CCTV Live Viewer</div>
-                        <button class="secondary-button" id="live-back">Back to Dashboard</button>
-                    </div>
-                    <table class="assign-table" id="cctv-table">
-                        <thead>
-                            <tr>
-                                <th>Camera</th>
-                                <th>Location</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($cameras as $cam): ?>
-                                <?php
-                                    $cid = (int)($cam['id'] ?? 0);
-                                    $cname = htmlspecialchars($cam['name'] ?? '');
-                                    $cloc = htmlspecialchars($cam['location'] ?? '');
-                                    $curl = htmlspecialchars($cam['stream_url'] ?? '');
-                                ?>
-                                <tr class="cctv-row" data-id="<?php echo $cid; ?>" data-name="<?php echo $cname; ?>" data-location="<?php echo $cloc; ?>" data-url="<?php echo $curl; ?>">
-                                    <td><?php echo $cname; ?></td>
-                                    <td><?php echo $cloc; ?></td>
-                                    <td><span class="badge badge-inactive">Offline</span></td>
-                                    <td class="assign-controls">
-                                        <button class="primary-button open-cam-btn">Open Camera</button>
-                                        <button class="secondary-button connect-cam-btn">Connect External Camera</button>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                            <?php if (empty($cameras)): ?>
-                                <tr>
-                                    <td colspan="4">No cameras configured.</td>
-                                </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                    <div class="details-panel" id="live-details" style="display:none;"></div>
                 </div>
             </div>
             <div class="content-section" id="evidence-archive-section">
@@ -1402,8 +1981,10 @@ $stmt = null;
                                     $at = htmlspecialchars($c['submitted_at'] ?? '');
                                     $st = htmlspecialchars($c['status'] ?? '');
                                     $label = strtolower($st) === 'resolved' ? 'Resolved' : 'Pending';
+                                    $photo = htmlspecialchars($c['photo_url'] ?? '');
+                                    $video = htmlspecialchars($c['video_url'] ?? '');
                                 ?>
-                                <tr class="complaint-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-cat="<?php echo $cat; ?>" data-loc="<?php echo $loc; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>">
+                                <tr class="complaint-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-cat="<?php echo $cat; ?>" data-loc="<?php echo $loc; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>" data-photo="<?php echo $photo; ?>" data-video="<?php echo $video; ?>">
                                     <td><?php echo $resident; ?></td>
                                     <td><?php echo $issueShort; ?></td>
                                     <td><?php echo $cat; ?></td>
@@ -1419,6 +2000,55 @@ $stmt = null;
                         </tbody>
                     </table>
                     <div class="details-panel" id="complaint-details" style="display:none;"></div>
+                    <div id="complaint-view-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:720px;max-width:92%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Complaint Details</div>
+                                <button class="secondary-button" id="complaint-view-close">Close</button>
+                            </div>
+                            <div style="padding:16px;display:grid;gap:12px;">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Resident</div>
+                                        <div id="cv-resident" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Category</div>
+                                        <div id="cv-category" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Location</div>
+                                        <div id="cv-location" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Submitted At</div>
+                                        <div id="cv-at" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Status</div>
+                                    <div id="cv-status" style="display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Issue</div>
+                                    <div id="cv-issue" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;max-height:220px;overflow:auto;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Attachments</div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                        <div id="cv-photo-wrap" style="display:none;">
+                                            <img id="cv-photo" src="" alt="Photo" style="width:100%;height:220px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+                                            <a id="cv-photo-download" href="#" download style="display:inline-block;margin-top:8px;">Download Photo</a>
+                                        </div>
+                                        <div id="cv-video-wrap" style="display:none;">
+                                            <video id="cv-video" controls style="width:100%;height:220px;border:1px solid #e5e7eb;border-radius:8px;background:#000;"></video>
+                                            <a id="cv-video-download" href="#" download style="display:inline-block;margin-top:8px;">Download Video</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="complaint-status-tracker-section">
@@ -1542,6 +2172,39 @@ $stmt = null;
                         <div class="registry-title">Volunteer Registry Database</div>
                         <button class="secondary-button" id="volreg-back">Back to Dashboard</button>
                     </div>
+                    <?php
+                        $acceptedVolunteers = array_filter($volunteers, function($v){ $st = strtolower($v['status'] ?? ''); return $st === 'accepted'; });
+                        $pendingVolunteers = array_filter($volunteers, function($v){ $st = strtolower($v['status'] ?? ''); return $st === 'pending'; });
+                        $totalVolunteers = count($volunteers);
+                        $acceptedCount = count($acceptedVolunteers);
+                        $pendingCount = count($pendingVolunteers);
+                    ?>
+                    <div class="stats-grid" style="margin-top:16px;">
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Members</span>
+                            </div>
+                            <div class="stat-value"><?php echo $totalVolunteers; ?></div>
+                            <div class="stat-info"><span>Total volunteers</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">New Accept</span>
+                            </div>
+                            <div class="stat-value"><?php echo $acceptedCount; ?></div>
+                            <div class="stat-info"><span>Accepted accounts</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Pending</span>
+                            </div>
+                            <div class="stat-value"><?php echo $pendingCount; ?></div>
+                            <div class="stat-info"><span>Awaiting approval</span></div>
+                        </div>
+                    </div>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Pending Accounts</div>
+                    </div>
                     <table class="assign-table" id="volreg-table">
                         <thead>
                             <tr>
@@ -1555,7 +2218,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($volunteers as $v): ?>
+                            <?php foreach ($pendingVolunteers as $v): ?>
                                 <?php
                                     $id = (int)($v['id'] ?? 0);
                                     $name = htmlspecialchars($v['name'] ?? '');
@@ -1591,7 +2254,64 @@ $stmt = null;
                                     <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="primary-button volreg-accept-btn">Accept</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($volunteers)): ?>
+                            <?php if (empty($pendingVolunteers)): ?>
+                                <tr><td colspan="7">No volunteers found.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Accepted Members</div>
+                    </div>
+                    <table class="assign-table" id="volreg-accepted-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Role</th>
+                                <th>Contact</th>
+                                <th>Email</th>
+                                <th>Zone</th>
+                                <th>Availability</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($acceptedVolunteers as $v): ?>
+                                <?php
+                                    $id = (int)($v['id'] ?? 0);
+                                    $name = htmlspecialchars($v['name'] ?? '');
+                                    $roleLabel = htmlspecialchars($v['role'] ?? '');
+                                    $contact = htmlspecialchars($v['contact'] ?? '');
+                                    $email = htmlspecialchars($v['email'] ?? '');
+                                    $zone = htmlspecialchars($v['zone'] ?? '');
+                                    $avail = htmlspecialchars($v['availability'] ?? '');
+                                ?>
+                                <tr class="volreg-row" data-id="<?php echo $id; ?>" data-name="<?php echo $name; ?>" data-role="<?php echo $roleLabel; ?>" data-contact="<?php echo $contact; ?>" data-email="<?php echo $email; ?>" data-zone="<?php echo $zone; ?>" data-availability="<?php echo $avail; ?>"
+                                    data-days="<?php echo htmlspecialchars($v['preferred_days'] ?? ''); ?>"
+                                    data-slots="<?php echo htmlspecialchars($v['time_slots'] ?? ''); ?>"
+                                    data-night="<?php echo isset($v['night_duty']) ? (int)$v['night_duty'] : 0; ?>"
+                                    data-max="<?php echo isset($v['max_hours']) ? (int)$v['max_hours'] : 0; ?>"
+                                    data-roles="<?php echo htmlspecialchars($v['role_prefs'] ?? ''); ?>"
+                                    data-skills="<?php echo htmlspecialchars($v['skills'] ?? ''); ?>"
+                                    data-prev="<?php echo isset($v['previous_volunteer']) ? (int)$v['previous_volunteer'] : 0; ?>"
+                                    data-prevorg="<?php echo htmlspecialchars($v['prev_org'] ?? ''); ?>"
+                                    data-years="<?php echo isset($v['years_experience']) ? (int)$v['years_experience'] : 0; ?>"
+                                    data-fit="<?php echo isset($v['physical_fit']) ? (int)$v['physical_fit'] : ''; ?>"
+                                    data-med="<?php echo htmlspecialchars($v['medical_conditions'] ?? ''); ?>"
+                                    data-long="<?php echo isset($v['long_period']) ? (int)$v['long_period'] : ''; ?>"
+                                    data-idurl="<?php echo htmlspecialchars($v['valid_id_url'] ?? ''); ?>"
+                                    data-status="<?php echo htmlspecialchars($v['status'] ?? ''); ?>"
+                                    data-created="<?php echo htmlspecialchars($v['created_at'] ?? ''); ?>"
+                                >
+                                    <td><?php echo $name; ?></td>
+                                    <td><?php echo $roleLabel; ?></td>
+                                    <td><?php echo $contact; ?></td>
+                                    <td><?php echo $email; ?></td>
+                                    <td><?php echo $zone; ?></td>
+                                    <td><?php echo $avail; ?></td>
+                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($acceptedVolunteers)): ?>
                                 <tr><td colspan="7">No volunteers found.</td></tr>
                             <?php endif; ?>
                         </tbody>
@@ -1743,9 +2463,9 @@ $stmt = null;
             <div class="content-section" id="route-mapping-section">
                 <div class="assign-card">
                     <div class="registry-header">
-                        <div class="registry-title">Route Mapping</div>
+                        <div class="registry-title">Route Monitoring</div>
                     </div>
-                    <iframe id="route-mapping-frame" src="Route%20Mapping.php" title="Route Mapping" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <iframe id="route-mapping-frame" src="Route%20Mapping.php" title="Route Monitoring (Commonwealth)" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
                 </div>
             </div>
             <div class="content-section" id="gps-tracking-section">
@@ -2035,7 +2755,96 @@ $stmt = null;
                         <div class="registry-title">Event Scheduling</div>
                         <button class="secondary-button" id="event-back">Back to Dashboard</button>
                     </div>
-                    <iframe id="event-scheduling-frame" src="Event%20Sheduling.php" title="Event Scheduling" scrolling="no" style="width:100%;min-height:720px;border:0;border-radius:12px;background:transparent;"></iframe>
+                    <?php
+                        $events = [];
+                        try {
+                            $pdo->exec("CREATE TABLE IF NOT EXISTS events (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                title VARCHAR(255) NOT NULL,
+                                event_date DATE NOT NULL,
+                                event_time VARCHAR(16) DEFAULT NULL,
+                                location VARCHAR(255) DEFAULT NULL,
+                                description TEXT DEFAULT NULL,
+                                status VARCHAR(32) DEFAULT 'Scheduled',
+                                created_by INT DEFAULT NULL,
+                                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                            $ev_stmt = $pdo->prepare("SELECT id, title, event_date, event_time, location, status, created_at FROM events ORDER BY event_date ASC, event_time ASC, id DESC LIMIT 500");
+                            $ev_stmt->execute([]);
+                            $events = $ev_stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $ev_stmt = null;
+                        } catch (Exception $e) { $events = []; }
+                    ?>
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+                        <button class="primary-button" id="create-event-btn">Create Event</button>
+                    </div>
+                    <table class="assign-table" id="events-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (!empty($events)): ?>
+                                <?php foreach ($events as $ev): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($ev['title'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['event_date'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['event_time'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['location'] ?? ''); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['status'] ?? 'Scheduled'); ?></td>
+                                        <td><?php echo htmlspecialchars($ev['created_at'] ?? ''); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr><td colspan="6">No events scheduled yet.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                    <style>
+                        #event-create-modal .modal-input{font-size:18px;padding:14px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}
+                        #event-create-modal select.modal-input{font-size:18px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;height:44px;}
+                        #event-create-modal input::placeholder,#event-create-modal textarea::placeholder{font-size:16px;opacity:.85;color:#6b7280;}
+                        #event-create-modal input[type="date"],#event-create-modal input[type="time"]{height:44px;}
+                    </style>
+                    <div id="event-create-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:800px;max-width:96%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Create Event</div>
+                                <button class="secondary-button" id="event-create-close">Close</button>
+                            </div>
+                            <form id="event-create-form" style="padding:16px;display:grid;gap:12px;">
+                                <select class="modal-input" name="title" required>
+                                    <option value="">Select event title</option>
+                                    <option>-TESDA TRAINING ORIENTATION</option>
+                                    <option>-ANTI- DENGUE CAMPAIGN</option>
+                                    <option>-BASKETBALL LEAGUE</option>
+                                    <option>-𝑯𝑰𝑽 𝑨𝑾𝑨𝑹𝑬𝑵𝑬𝑺𝑺 𝑪𝑨𝑴𝑷𝑨𝑰𝑮𝑵</option>
+                                    <option>-DEWORMING ACTIVITY</option>
+                                    <option>-DRUG ABUSE PREVENTION AND EDUCATION</option>
+                                    <option>-OPLAN LIGTAS AT LAKAS NG PAMAYANAN</option>
+                                    <option>-𝐕𝐨𝐥𝐮𝐧𝐭𝐞𝐞𝐫𝐢𝐧𝐠 𝐎𝐩𝐩𝐨𝐫𝐭𝐮𝐧𝐢𝐭𝐢𝐞𝐬 𝐢𝐧 𝐂𝐢𝐯𝐢𝐜 𝐄𝐧𝐠𝐚𝐠𝐞𝐦𝐞𝐧𝐭 𝐚𝐧𝐝 𝐒𝐞𝐫𝐯𝐢𝐜𝐞” (𝐕𝐎𝐈𝐂𝐄𝐒)</option>
+                                    <option>-BLOOD LETTING</option>
+                                </select>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <input class="modal-input" type="date" name="date" required>
+                                    <input class="modal-input" type="time" name="time">
+                                </div>
+                                <input class="modal-input" type="text" name="location" placeholder="Location">
+                                <textarea class="modal-input" name="description" rows="4" placeholder="Description"></textarea>
+                                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                                    <button type="button" class="secondary-button" id="event-create-cancel">Cancel</button>
+                                    <button type="submit" class="primary-button" id="event-create-submit">Create</button>
+                                </div>
+                                <div id="event-create-status" style="margin-top:8px;font-weight:500;"></div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="feedback-section">
@@ -2514,131 +3323,1023 @@ $stmt = null;
             </div>
         </div>
     </div>
+  
+
+
+
+
+
     
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const animationOverlay = document.getElementById('dashboard-animation');
-            const animationProgress = document.getElementById('animation-progress');
-            const animationText = document.getElementById('animation-text');
-            const animationLogo = document.querySelector('.animation-logo');
-            
-            setTimeout(() => {
-            animationLogo.style.opacity = '1';
-            animationLogo.style.transform = 'translateY(0)';
-            }, 10);
-            
-            setTimeout(() => {
-            animationText.style.opacity = '1';
-            }, 600);
-            
-            setTimeout(() => {
-            animationProgress.style.width = '180%';
-            }, 100);
-            
-            setTimeout(() => {
-            animationOverlay.style.opacity = '0';
-            setTimeout(() => {
-                animationOverlay.style.display = 'none';
-            }, 500);
-            }, 3000);
-        });
+    // Face Recognition JavaScript Implementation
+    document.addEventListener('DOMContentLoaded', function() {
+        // DOM Elements
+        const videoElement = document.getElementById('live-video');
+        const canvasElement = document.getElementById('face-canvas');
+        const trainingVideo = document.getElementById('training-video');
+        const trainingCanvas = document.getElementById('training-canvas');
+        const startCameraBtn = document.getElementById('start-camera');
+        const stopCameraBtn = document.getElementById('stop-camera');
+        const captureSnapshotBtn = document.getElementById('capture-snapshot');
+        const closeLiveViewBtn = document.getElementById('close-live-view');
+        const toggleRecognitionBtn = document.getElementById('toggle-recognition');
+        const trainNewFaceBtn = document.getElementById('train-new-face');
+        const viewTrainedFacesBtn = document.getElementById('view-trained-faces');
+        const closeTrainedFacesBtn = document.getElementById('close-trained-faces');
+        const faceTrainingModal = document.getElementById('face-training-modal');
+        const closeTrainingModal = document.getElementById('close-training-modal');
+        const startTrainingCameraBtn = document.getElementById('start-training-camera');
+        const captureTrainingFaceBtn = document.getElementById('capture-training-face');
+        const saveTrainingBtn = document.getElementById('save-training');
+        const cancelTrainingBtn = document.getElementById('cancel-training');
+        const faceNameInput = document.getElementById('face-name');
+        const faceRoleInput = document.getElementById('face-role');
+        const trainingStatus = document.getElementById('training-status');
+        const recognizedFacesList = document.getElementById('recognized-faces-list');
+        const detectionLog = document.getElementById('detection-log');
+        const trainedFacesSection = document.getElementById('trained-faces-section');
+        const trainedFacesList = document.getElementById('trained-faces-list');
+        const liveBackBtn = document.getElementById('live-back');
         
-        function toggleSubmenu(id) {
-            const submenu = document.getElementById(id);
-            const arrow = document.querySelector(`#${id}`).previousElementSibling.querySelector('.dropdown-arrow');
-            
-            submenu.classList.toggle('active');
-            arrow.classList.toggle('rotated');
+        // State variables
+        let isRecognitionActive = false;
+        let videoStream = null;
+        let trainingStream = null;
+        let faceDetectionInterval = null;
+        let recognizedFaces = [];
+        let detectionHistory = [];
+        let isFaceAPILoaded = false;
+        
+        // Initialize face recognition
+        async function initFaceRecognition() {
+            try {
+                // Load face-api.js models
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('../models'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('../models'),
+                    faceapi.nets.faceRecognitionNet.loadFromUri('../models'),
+                    faceapi.nets.ssdMobilenetv1.loadFromUri('../models')
+                ]);
+                
+                isFaceAPILoaded = true;
+                addToLog('Face recognition models loaded successfully', 'success');
+                
+                // Load trained faces from server
+                await loadTrainedFaces();
+                
+                // Update UI
+                updateRecognizedFacesList();
+                updateDetectionLog();
+                
+            } catch (error) {
+                console.error('Error loading face recognition models:', error);
+                addToLog('Failed to load face recognition models', 'error');
+                // Fall back to basic face detection
+                isFaceAPILoaded = false;
+            }
         }
         
-        document.querySelectorAll('.menu-item').forEach(item => {
-            item.addEventListener('click', function() {
-                document.querySelectorAll('.menu-item').forEach(i => {
-                    i.classList.remove('active');
+        // Load trained faces from server
+        async function loadTrainedFaces() {
+            try {
+                const formData = new FormData();
+                formData.append('action', 'face_recognition_list');
+                
+                const response = await fetch('admin_dashboard.php', {
+                    method: 'POST',
+                    body: formData
                 });
                 
-                this.classList.add('active');
+                const data = await response.json();
+                
+                if (data.success) {
+                    recognizedFaces = data.faces;
+                    updateTrainedFacesList();
+                } else {
+                    addToLog('Failed to load trained faces', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading trained faces:', error);
+                addToLog('Network error loading trained faces', 'error');
+            }
+        }
+        
+        // Update trained faces list in UI
+        function updateTrainedFacesList() {
+            if (!trainedFacesList) return;
+            
+            trainedFacesList.innerHTML = '';
+            
+            if (recognizedFaces.length === 0) {
+                trainedFacesList.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #6b7280;">
+                        No trained faces found. Train some faces to enable recognition.
+                    </div>
+                `;
+                return;
+            }
+            
+            recognizedFaces.forEach((face, index) => {
+                const faceElement = document.createElement('div');
+                faceElement.className = 'face-item';
+                faceElement.style.padding = '15px';
+                faceElement.style.borderBottom = '1px solid #f1f5f9';
+                faceElement.style.display = 'flex';
+                faceElement.style.alignItems = 'center';
+                faceElement.style.gap = '15px';
+                
+                // Format date
+                const trainedDate = new Date(face.trained_at);
+                const formattedDate = trainedDate.toLocaleDateString() + ' ' + trainedDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                faceElement.innerHTML = `
+                    <div style="width: 60px; height: 60px; border-radius: 50%; background: #e5e7eb; 
+                          display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                        ${face.image_path ? 
+                          `<img src="../${face.image_path}" style="width: 100%; height: 100%; object-fit: cover;">` :
+                          `<i class='bx bx-user' style="font-size: 30px; color: #6b7280;"></i>`
+                        }
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 16px;">${face.name}</div>
+                        <div style="color: #6b7280; font-size: 14px;">${face.role || 'No role specified'}</div>
+                        <div style="color: #9ca3af; font-size: 12px;">Trained: ${formattedDate}</div>
+                    </div>
+                    <button class="secondary-button delete-face-btn" data-id="${face.id}" 
+                            style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                `;
+                
+                trainedFacesList.appendChild(faceElement);
             });
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.delete-face-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const faceId = this.getAttribute('data-id');
+                    await deleteTrainedFace(faceId);
+                });
+            });
+        }
+        
+        // Delete trained face
+        async function deleteTrainedFace(faceId) {
+            if (!confirm('Are you sure you want to delete this trained face?')) {
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'face_recognition_delete');
+                formData.append('face_id', faceId);
+                
+                const response = await fetch('admin_dashboard.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addToLog('Face deleted successfully', 'success');
+                    await loadTrainedFaces(); // Reload faces
+                } else {
+                    addToLog('Failed to delete face: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting face:', error);
+                addToLog('Network error deleting face', 'error');
+            }
+        }
+        
+        // Start live camera
+        startCameraBtn.addEventListener('click', async function() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'environment'
+                    },
+                    audio: false 
+                });
+                
+                videoElement.srcObject = videoStream;
+                videoElement.style.display = 'block';
+                document.getElementById('video-fallback').style.display = 'none';
+                
+                // Set canvas dimensions
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+                
+                addToLog('Camera started successfully', 'success');
+                
+                // Start face detection if recognition is active
+                if (isRecognitionActive) {
+                    startFaceDetection();
+                }
+                
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                addToLog(`Camera error: ${error.message}`, 'error');
+                
+                // Try with different constraints
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: true,
+                        audio: false 
+                    });
+                    
+                    videoElement.srcObject = videoStream;
+                    videoElement.style.display = 'block';
+                    document.getElementById('video-fallback').style.display = 'none';
+                    
+                    addToLog('Camera started with default constraints', 'success');
+                } catch (fallbackError) {
+                    addToLog('Cannot access camera. Please check permissions.', 'error');
+                }
+            }
         });
         
-        document.querySelectorAll('.submenu-item').forEach(item => {
-            item.addEventListener('click', function(e) {
-                const target = this.getAttribute('data-target');
-                if (target) {
-                    e.preventDefault();
-                    document.querySelectorAll('.submenu-item').forEach(i => { i.classList.remove('active'); });
-                    this.classList.add('active');
-                    document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
-                    const el = document.getElementById(target);
-                    if (el) el.style.display = 'block';
-                    if (target === 'gps-tracking-section') {
-                        if (typeof loadGPSUnits === 'function') loadGPSUnits();
+        // Stop camera
+        stopCameraBtn.addEventListener('click', function() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+                videoElement.srcObject = null;
+                videoElement.style.display = 'none';
+                document.getElementById('video-fallback').style.display = 'block';
+                
+                // Stop face detection
+                if (faceDetectionInterval) {
+                    clearInterval(faceDetectionInterval);
+                    faceDetectionInterval = null;
+                }
+                
+                addToLog('Camera stopped', 'info');
+            }
+        });
+        
+        // Close live viewer (top-right button)
+        function closeLiveView() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            videoElement.srcObject = null;
+            videoElement.style.display = 'none';
+            document.getElementById('video-fallback').style.display = 'block';
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+                faceDetectionInterval = null;
+            }
+            const ctx = canvasElement.getContext('2d');
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            addToLog('Camera closed', 'info');
+        }
+        if (closeLiveViewBtn) {
+            closeLiveViewBtn.addEventListener('click', closeLiveView);
+        }
+        
+        // Toggle face recognition
+        toggleRecognitionBtn.addEventListener('click', function() {
+            isRecognitionActive = !isRecognitionActive;
+            
+            if (isRecognitionActive) {
+                document.getElementById('recognition-status-text').textContent = 'Active';
+                document.getElementById('recognition-status-text').style.color = '#059669';
+                toggleRecognitionBtn.textContent = 'Disable Recognition';
+                
+                if (videoStream) {
+                    startFaceDetection();
+                }
+                
+                addToLog('Face recognition activated', 'success');
+            } else {
+                document.getElementById('recognition-status-text').textContent = 'Disabled';
+                document.getElementById('recognition-status-text').style.color = '#dc2626';
+                toggleRecognitionBtn.textContent = 'Enable Recognition';
+                
+                // Stop face detection
+                if (faceDetectionInterval) {
+                    clearInterval(faceDetectionInterval);
+                    faceDetectionInterval = null;
+                }
+                
+                // Clear canvas
+                const ctx = canvasElement.getContext('2d');
+                ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                
+                addToLog('Face recognition deactivated', 'info');
+            }
+        });
+        
+        // Start face detection
+        function startFaceDetection() {
+            if (!isRecognitionActive || !videoStream) return;
+            
+            // Clear any existing interval
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+            }
+            
+            // Start detection loop
+            faceDetectionInterval = setInterval(async () => {
+                await detectFaces();
+            }, 100); // Detect every 100ms
+        }
+        
+        // Detect faces in video
+        async function detectFaces() {
+            if (!isRecognitionActive || !videoStream || !videoElement.videoWidth) return;
+            
+            const ctx = canvasElement.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Canvas remains transparent; draw only overlays
+            
+            let faceCount = 0;
+            let recognizedCount = 0;
+            let unknownCount = 0;
+            
+            if (isFaceAPILoaded) {
+                // Use face-api.js for detection
+                try {
+                    const detections = await faceapi.detectAllFaces(
+                        videoElement, 
+                        new faceapi.TinyFaceDetectorOptions()
+                    ).withFaceLandmarks().withFaceDescriptors();
+                    
+                    faceCount = detections.length;
+                    
+                    // Process each detection
+                    detections.forEach((detection, index) => {
+                        const { x, y, width, height } = detection.detection.box;
+                        
+                        // Draw bounding box
+                        ctx.strokeStyle = '#3b82f6';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(x, y, width, height);
+                        
+                        // Try to recognize the face
+                        recognizeFace(detection.descriptor).then(result => {
+                            if (result.recognized) {
+                                recognizedCount++;
+                                
+                                // Draw recognition label
+                                ctx.fillStyle = '#059669';
+                                ctx.font = '16px Arial';
+                                ctx.fillText(`${result.name} (${Math.round(result.confidence)}%)`, x, y - 10);
+                                
+                                // Log recognition
+                                if (index === 0) { // Only log primary face
+                                    updateLiveDetectionInfo(result.name, result.confidence, 'recognized');
+                                    
+                                    // Add to recent recognitions
+                                    addRecentRecognition(result.name, result.confidence);
+                                }
+                            } else {
+                                unknownCount++;
+                                
+                                // Draw unknown label
+                                ctx.fillStyle = '#dc2626';
+                                ctx.font = '16px Arial';
+                                ctx.fillText('Unknown', x, y - 10);
+                                
+                                if (index === 0) {
+                                    updateLiveDetectionInfo('Unknown', 0, 'unknown');
+                                }
+                            }
+                        });
+                    });
+                    
+                } catch (error) {
+                    console.error('Face detection error:', error);
+                    // Fall back to basic detection
+                    simulateFaceDetection(ctx);
+                    faceCount = 1;
+                    unknownCount = 1;
+                }
+            } else {
+                // Fall back to basic detection
+                simulateFaceDetection(ctx);
+                faceCount = 1;
+                unknownCount = 1;
+            }
+            
+            // Update counters
+            document.getElementById('face-count').textContent = faceCount;
+            document.getElementById('recognized-count').textContent = recognizedCount;
+            document.getElementById('unknown-count').textContent = unknownCount;
+        }
+        
+        // Recognize face using LBPH (calls Python backend)
+        async function recognizeFace(faceDescriptor) {
+            try {
+                // Convert video frame to image
+                const canvas = document.createElement('canvas');
+                canvas.width = videoElement.videoWidth;
+                canvas.height = videoElement.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to base64
+                const imageData = canvas.toDataURL('image/png');
+                
+                // Send to Python backend for recognition
+                const formData = new FormData();
+                formData.append('action', 'face_recognition_predict');
+                formData.append('image_data', imageData);
+                
+                const response = await fetch('admin_dashboard.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.recognized) {
+                    return {
+                        recognized: true,
+                        name: data.name,
+                        confidence: data.confidence,
+                        role: data.role
+                    };
+                }
+            } catch (error) {
+                console.error('Face recognition error:', error);
+            }
+            
+            return {
+                recognized: false,
+                name: 'Unknown',
+                confidence: 0
+            };
+        }
+        
+        // Simulate face detection (fallback)
+        function simulateFaceDetection(ctx) {
+            const width = canvasElement.width;
+            const height = canvasElement.height;
+            
+            // Draw a simulated face bounding box
+            const x = width * 0.3;
+            const y = height * 0.3;
+            const faceWidth = width * 0.4;
+            const faceHeight = height * 0.5;
+            
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, faceWidth, faceHeight);
+            
+            ctx.fillStyle = '#3b82f6';
+            ctx.font = '16px Arial';
+            ctx.fillText('Face Detected', x, y - 10);
+        }
+        
+        // Update live detection info
+        function updateLiveDetectionInfo(name, confidence, status) {
+            const detectionInfo = document.getElementById('live-detection-info');
+            
+            if (name && name !== 'Unknown') {
+                detectionInfo.style.display = 'block';
+                document.getElementById('detected-name').textContent = name;
+                document.getElementById('detection-confidence').textContent = `Confidence: ${confidence}%`;
+                
+                // Update status
+                const statusElement = document.getElementById('detection-status');
+                statusElement.textContent = status === 'recognized' ? 'Recognized' : 'Unknown';
+                statusElement.style.background = status === 'recognized' ? '#d1fae5' : '#fee2e2';
+                statusElement.style.color = status === 'recognized' ? '#065f46' : '#991b1b';
+            } else {
+                detectionInfo.style.display = 'none';
+                document.getElementById('detected-name').textContent = 'No face detected';
+                document.getElementById('detection-confidence').textContent = 'Confidence: 0%';
+            }
+        }
+        
+        // Add recent recognition
+        function addRecentRecognition(name, confidence) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
+            // Check if this person was recently recognized (within last 30 seconds)
+            const recentIndex = detectionHistory.findIndex(entry => 
+                entry.name === name && 
+                (now - new Date(entry.timestamp)) < 30000
+            );
+            
+            if (recentIndex === -1) {
+                const recognition = {
+                    name: name,
+                    confidence: confidence,
+                    timestamp: now.toISOString(),
+                    time: timeString
+                };
+                
+                // Add to beginning of array
+                detectionHistory.unshift(recognition);
+                
+                // Keep only last 10 recognitions
+                if (detectionHistory.length > 10) {
+                    detectionHistory = detectionHistory.slice(0, 10);
+                }
+                
+                // Update UI
+                updateRecognizedFacesList();
+            }
+        }
+        
+        // Update recognized faces list in UI
+        function updateRecognizedFacesList() {
+            if (!recognizedFacesList) return;
+            
+            recognizedFacesList.innerHTML = '';
+            
+            if (detectionHistory.length === 0) {
+                recognizedFacesList.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #6b7280;">
+                        No faces recognized yet
+                    </div>
+                `;
+                return;
+            }
+            
+            detectionHistory.forEach(recognition => {
+                const faceElement = document.createElement('div');
+                faceElement.style.padding = '10px';
+                faceElement.style.borderBottom = '1px solid #f1f5f9';
+                faceElement.style.display = 'flex';
+                faceElement.style.alignItems = 'center';
+                faceElement.style.gap = '10px';
+                
+                faceElement.innerHTML = `
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e5e7eb; 
+                          display: flex; align-items: center; justify-content: center;">
+                        <i class='bx bx-user' style="font-size: 20px; color: #6b7280;"></i>
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600;">${recognition.name}</div>
+                        <div style="color: #6b7280; font-size: 14px;">${recognition.confidence}% confidence</div>
+                    </div>
+                    <div style="color: #9ca3af; font-size: 12px;">${recognition.time}</div>
+                `;
+                
+                recognizedFacesList.appendChild(faceElement);
+            });
+        }
+        
+        // Add to detection log
+        function addToLog(message, type = 'info') {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            
+            const logEntry = {
+                message: message,
+                type: type,
+                timestamp: timeString
+            };
+            
+            // Add to beginning of log
+            const logElement = document.createElement('div');
+            logElement.style.padding = '8px';
+            logElement.style.borderBottom = '1px solid #f1f5f9';
+            
+            let color = '#6b7280';
+            let icon = 'ℹ️';
+            if (type === 'success') { color = '#059669'; icon = '✅'; }
+            if (type === 'error') { color = '#dc2626'; icon = '❌'; }
+            if (type === 'warning') { color = '#d97706'; icon = '⚠️'; }
+            if (type === 'detection') { color = '#3b82f6'; icon = '👤'; }
+            
+            logElement.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: ${color}; display: flex; align-items: center; gap: 5px;">
+                        <span>${icon}</span>
+                        <span>${message}</span>
+                    </span>
+                    <span style="color: #9ca3af; font-size: 12px;">${timeString}</span>
+                </div>
+            `;
+            
+            // Insert at the beginning
+            if (detectionLog.firstChild) {
+                detectionLog.insertBefore(logElement, detectionLog.firstChild);
+            } else {
+                detectionLog.appendChild(logElement);
+            }
+            
+            // Keep only last 20 log entries
+            while (detectionLog.children.length > 20) {
+                detectionLog.removeChild(detectionLog.lastChild);
+            }
+        }
+        
+        // Update detection log UI
+        function updateDetectionLog() {
+            // Already updated in addToLog
+        }
+        
+        // Capture snapshot
+        captureSnapshotBtn.addEventListener('click', function() {
+            if (!videoStream) {
+                addToLog('Start camera first to capture snapshot', 'warning');
+                return;
+            }
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            // Create download link
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            link.download = `cctv-snapshot-${timestamp}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            
+            addToLog('Snapshot captured and downloaded', 'success');
+        });
+        
+        // Open face training modal
+        trainNewFaceBtn.addEventListener('click', function() {
+            faceTrainingModal.style.display = 'flex';
+            faceNameInput.value = '';
+            faceRoleInput.value = '';
+            trainingStatus.textContent = '';
+            document.getElementById('training-preview').style.display = 'none';
+            document.getElementById('captured-face').src = '';
+            trainingVideo.style.display = 'none';
+            startTrainingCameraBtn.style.display = 'inline-block';
+            captureTrainingFaceBtn.style.display = 'none';
+            saveTrainingBtn.style.display = 'none';
+        });
+        
+        // View trained faces
+        viewTrainedFacesBtn.addEventListener('click', function() {
+            trainedFacesSection.style.display = 'block';
+        });
+        
+        // Close trained faces section
+        closeTrainedFacesBtn.addEventListener('click', function() {
+            trainedFacesSection.style.display = 'none';
+        });
+        
+        // Close training modal
+        closeTrainingModal.addEventListener('click', function() {
+            faceTrainingModal.style.display = 'none';
+            stopTrainingCamera();
+        });
+        
+        cancelTrainingBtn.addEventListener('click', function() {
+            faceTrainingModal.style.display = 'none';
+            stopTrainingCamera();
+        });
+        
+        // Start training camera
+        startTrainingCameraBtn.addEventListener('click', async function() {
+            try {
+                trainingStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 320 },
+                        height: { ideal: 240 },
+                        facingMode: 'user' // Use front camera for training
+                    },
+                    audio: false 
+                });
+                
+                trainingVideo.srcObject = trainingStream;
+                trainingVideo.style.display = 'block';
+                startTrainingCameraBtn.style.display = 'none';
+                captureTrainingFaceBtn.style.display = 'inline-block';
+                
+                trainingStatus.textContent = 'Camera ready - position face in frame';
+                trainingStatus.style.color = '#059669';
+            } catch (error) {
+                trainingStatus.textContent = `Camera error: ${error.message}`;
+                trainingStatus.style.color = '#dc2626';
+            }
+        });
+        
+        // Capture face for training
+        captureTrainingFaceBtn.addEventListener('click', function() {
+            if (!trainingStream) return;
+            
+            // Set canvas dimensions
+            trainingCanvas.width = trainingVideo.videoWidth;
+            trainingCanvas.height = trainingVideo.videoHeight;
+            const ctx = trainingCanvas.getContext('2d');
+            
+            // Draw video frame on canvas
+            ctx.drawImage(trainingVideo, 0, 0, trainingCanvas.width, trainingCanvas.height);
+            
+            // Try to detect face using face-api.js
+            if (isFaceAPILoaded) {
+                faceapi.detectSingleFace(
+                    trainingVideo, 
+                    new faceapi.TinyFaceDetectorOptions()
+                ).withFaceLandmarks().then(detection => {
+                    if (detection) {
+                        const { x, y, width, height } = detection.detection.box;
+                        
+                        // Extract face region
+                        const faceCanvas = document.createElement('canvas');
+                        faceCanvas.width = width;
+                        faceCanvas.height = height;
+                        const faceCtx = faceCanvas.getContext('2d');
+                        faceCtx.drawImage(
+                            trainingCanvas,
+                            x, y, width, height,
+                            0, 0, width, height
+                        );
+                        
+                        // Convert to data URL
+                        const faceData = faceCanvas.toDataURL('image/png');
+                        
+                        // Show preview
+                        document.getElementById('captured-face').src = faceData;
+                        document.getElementById('training-preview').style.display = 'block';
+                        
+                        // Store face data temporarily
+                        trainingCanvas.dataset.faceData = faceData;
+                        
+                        // Show save button
+                        saveTrainingBtn.style.display = 'inline-block';
+                        
+                        trainingStatus.textContent = 'Face detected - enter name and save';
+                        trainingStatus.style.color = '#3b82f6';
+                    } else {
+                        trainingStatus.textContent = 'No face detected. Please position face clearly in frame.';
+                        trainingStatus.style.color = '#dc2626';
+                    }
+                }).catch(error => {
+                    console.error('Face detection error:', error);
+                    trainingStatus.textContent = 'Face detection failed. Please try again.';
+                    trainingStatus.style.color = '#dc2626';
+                });
+            } else {
+                // Fallback: capture whole frame
+                const faceData = trainingCanvas.toDataURL('image/png');
+                document.getElementById('captured-face').src = faceData;
+                document.getElementById('training-preview').style.display = 'block';
+                trainingCanvas.dataset.faceData = faceData;
+                saveTrainingBtn.style.display = 'inline-block';
+                trainingStatus.textContent = 'Image captured - enter name and save';
+                trainingStatus.style.color = '#3b82f6';
+            }
+        });
+        
+        // Save trained face
+        saveTrainingBtn.addEventListener('click', async function() {
+            const name = faceNameInput.value.trim();
+            const role = faceRoleInput.value.trim();
+            const faceData = trainingCanvas.dataset.faceData;
+            
+            if (!name) {
+                trainingStatus.textContent = 'Please enter a name for the face';
+                trainingStatus.style.color = '#dc2626';
+                return;
+            }
+            
+            if (!faceData) {
+                trainingStatus.textContent = 'Please capture a face first';
+                trainingStatus.style.color = '#dc2626';
+                return;
+            }
+            
+            try {
+                // Send to server for training
+                const formData = new FormData();
+                formData.append('action', 'face_recognition_train');
+                formData.append('name', name);
+                formData.append('role', role);
+                formData.append('image_data', faceData);
+                
+                trainingStatus.textContent = 'Training face...';
+                trainingStatus.style.color = '#3b82f6';
+                
+                const response = await fetch('admin_dashboard.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Close modal
+                    faceTrainingModal.style.display = 'none';
+                    stopTrainingCamera();
+                    
+                    // Reload trained faces
+                    await loadTrainedFaces();
+                    
+                    addToLog(`Trained new face: ${name}`, 'success');
+                    
+                    // Show success message
+                    alert(`Face "${name}" has been successfully trained and added to recognition system.`);
+                } else {
+                    trainingStatus.textContent = data.error || 'Failed to train face';
+                    trainingStatus.style.color = '#dc2626';
+                }
+            } catch (error) {
+                console.error('Training error:', error);
+                trainingStatus.textContent = 'Network error during training';
+                trainingStatus.style.color = '#dc2626';
+            }
+        });
+        
+        // Stop training camera
+        function stopTrainingCamera() {
+            if (trainingStream) {
+                trainingStream.getTracks().forEach(track => track.stop());
+                trainingStream = null;
+                trainingVideo.style.display = 'none';
+            }
+        }
+        
+        // Back to dashboard
+        liveBackBtn.addEventListener('click', function() {
+            // Stop camera and face detection
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            if (faceDetectionInterval) {
+                clearInterval(faceDetectionInterval);
+                faceDetectionInterval = null;
+            }
+            
+            // Hide current section and show home section
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.style.display = 'none';
+            });
+            document.getElementById('home-section').style.display = 'block';
+        });
+        
+        // Initialize when Live Viewer section is shown
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                    const liveViewer = document.getElementById('live-viewer-section');
+                    if (liveViewer.style.display === 'block') {
+                        initFaceRecognition();
                     }
                 }
             });
         });
         
-        const themeToggle = document.getElementById('theme-toggle');
-        const themeIcon = themeToggle.querySelector('i');
-        const themeText = themeToggle.querySelector('span');
-        
-        themeToggle.addEventListener('click', function() {
-            document.body.classList.toggle('dark-mode');
-            
-            if (document.body.classList.contains('dark-mode')) {
-                themeIcon.className = 'bx bx-sun';
-                themeText.textContent = 'Light Mode';
-            } else {
-                themeIcon.className = 'bx bx-moon';
-                themeText.textContent = 'Dark Mode';
-            }
+        observer.observe(document.getElementById('live-viewer-section'), {
+            attributes: true,
+            attributeFilter: ['style']
         });
         
-        const settingsButton = document.getElementById('settings-button');
-        const settingsDropdown = document.getElementById('settings-dropdown');
-        const settingsContainer = document.querySelector('.settings-dropdown-container');
-        if (settingsButton && settingsDropdown && settingsContainer) {
-            settingsDropdown.classList.remove('active');
-            settingsContainer.classList.remove('open');
-            settingsButton.setAttribute('aria-expanded', 'false');
-            settingsButton.addEventListener('click', function(e){
-                e.preventDefault();
-                e.stopPropagation();
-                const isOpen = settingsDropdown.classList.contains('active');
-                if (isOpen) {
-                    settingsDropdown.classList.remove('active');
-                    settingsContainer.classList.remove('open');
-                    settingsButton.setAttribute('aria-expanded','false');
-                } else {
-                    settingsDropdown.classList.add('active');
-                    settingsContainer.classList.add('open');
-                    settingsButton.setAttribute('aria-expanded','true');
-                }
-            });
-            document.addEventListener('click', function(e){
-                if (!settingsContainer.contains(e.target)) {
-                    settingsDropdown.classList.remove('active');
-                    settingsContainer.classList.remove('open');
-                    settingsButton.setAttribute('aria-expanded','false');
-                }
-            });
+        // Also initialize on page load if Live Viewer is active
+        if (document.getElementById('live-viewer-section').style.display === 'block') {
+            initFaceRecognition();
         }
+    });
+    
+    // Existing dashboard JavaScript functions...
+    document.addEventListener('DOMContentLoaded', function() {
+        const animationOverlay = document.getElementById('dashboard-animation');
+        const animationProgress = document.getElementById('animation-progress');
+        const animationText = document.getElementById('animation-text');
+        const animationLogo = document.querySelector('.animation-logo');
         
-        const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
-        const sidebarSettingsSubmenu = document.getElementById('sidebar-settings-submenu');
-        if (sidebarSettingsBtn && sidebarSettingsSubmenu) {
-            function closeSidebarSettings() {
-                sidebarSettingsSubmenu.classList.remove('active');
-                sidebarSettingsBtn.setAttribute('aria-expanded', 'false');
+        setTimeout(() => {
+            animationLogo.style.opacity = '1';
+            animationLogo.style.transform = 'translateY(0)';
+        }, 10);
+        
+        setTimeout(() => {
+            animationText.style.opacity = '1';
+        }, 600);
+        
+        setTimeout(() => {
+            animationProgress.style.width = '180%';
+        }, 100);
+        
+        setTimeout(() => {
+            animationOverlay.style.opacity = '0';
+            setTimeout(() => {
+                animationOverlay.style.display = 'none';
+            }, 500);
+        }, 3000);
+    });
+    
+    function toggleSubmenu(id) {
+        const submenu = document.getElementById(id);
+        const arrow = document.querySelector(`#${id}`).previousElementSibling.querySelector('.dropdown-arrow');
+        
+        submenu.classList.toggle('active');
+        arrow.classList.toggle('rotated');
+    }
+    
+    document.querySelectorAll('.menu-item').forEach(item => {
+        item.addEventListener('click', function() {
+            document.querySelectorAll('.menu-item').forEach(i => {
+                i.classList.remove('active');
+            });
+            
+            this.classList.add('active');
+        });
+    });
+    
+    document.querySelectorAll('.submenu-item').forEach(item => {
+        item.addEventListener('click', function(e) {
+            const target = this.getAttribute('data-target');
+            if (target) {
+                e.preventDefault();
+                document.querySelectorAll('.submenu-item').forEach(i => { i.classList.remove('active'); });
+                this.classList.add('active');
+                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+                const el = document.getElementById(target);
+                if (el) el.style.display = 'block';
+                if (target === 'gps-tracking-section') {
+                    if (typeof loadGPSUnits === 'function') loadGPSUnits();
+                }
+                if (target === 'live-viewer-section') {
+                    // Face recognition will auto-initialize via MutationObserver
+                }
             }
-            function openSidebarSettings() {
-                if (settingsDropdown) { settingsDropdown.classList.remove('active'); }
-                if (settingsContainer) { settingsContainer.classList.remove('open'); }
-                if (settingsButton) { settingsButton.setAttribute('aria-expanded','false'); }
-                sidebarSettingsSubmenu.classList.add('active');
-                sidebarSettingsBtn.setAttribute('aria-expanded', 'true');
+        });
+    });
+    
+    const themeToggle = document.getElementById('theme-toggle');
+    const themeIcon = themeToggle.querySelector('i');
+    const themeText = themeToggle.querySelector('span');
+    
+    themeToggle.addEventListener('click', function() {
+        document.body.classList.toggle('dark-mode');
+        
+        if (document.body.classList.contains('dark-mode')) {
+            themeIcon.className = 'bx bx-sun';
+            themeText.textContent = 'Light Mode';
+        } else {
+            themeIcon.className = 'bx bx-moon';
+            themeText.textContent = 'Dark Mode';
+        }
+    });
+    
+    const settingsButton = document.getElementById('settings-button');
+    const settingsDropdown = document.getElementById('settings-dropdown');
+    const settingsContainer = document.querySelector('.settings-dropdown-container');
+    if (settingsButton && settingsDropdown && settingsContainer) {
+        settingsDropdown.classList.remove('active');
+        settingsContainer.classList.remove('open');
+        settingsButton.setAttribute('aria-expanded', 'false');
+        settingsButton.addEventListener('click', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            const isOpen = settingsDropdown.classList.contains('active');
+            if (isOpen) {
+                settingsDropdown.classList.remove('active');
+                settingsContainer.classList.remove('open');
+                settingsButton.setAttribute('aria-expanded','false');
+            } else {
+                settingsDropdown.classList.add('active');
+                settingsContainer.classList.add('open');
+                settingsButton.setAttribute('aria-expanded','true');
             }
-            sidebarSettingsBtn.addEventListener('click', function(e){
+        });
+        document.addEventListener('click', function(e){
+            if (!settingsContainer.contains(e.target)) {
+                settingsDropdown.classList.remove('active');
+                settingsContainer.classList.remove('open');
+                settingsButton.setAttribute('aria-expanded','false');
+            }
+        });
+    }
+    
+    const sidebarSettingsBtn = document.getElementById('sidebar-settings-btn');
+    const sidebarSettingsSubmenu = document.getElementById('sidebar-settings-submenu');
+    if (sidebarSettingsBtn && sidebarSettingsSubmenu) {
+        function closeSidebarSettings() {
+            sidebarSettingsSubmenu.classList.remove('active');
+            sidebarSettingsBtn.setAttribute('aria-expanded', 'false');
+        }
+        function openSidebarSettings() {
+            if (settingsDropdown) { settingsDropdown.classList.remove('active'); }
+            if (settingsContainer) { settingsContainer.classList.remove('open'); }
+            if (settingsButton) { settingsButton.setAttribute('aria-expanded','false'); }
+            sidebarSettingsSubmenu.classList.add('active');
+            sidebarSettingsBtn.setAttribute('aria-expanded', 'true');
+        }
+        sidebarSettingsBtn.addEventListener('click', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            if (sidebarSettingsSubmenu.classList.contains('active')) {
+                closeSidebarSettings();
+            } else {
+                openSidebarSettings();
+            }
+        });
+        sidebarSettingsBtn.addEventListener('keydown', function(e){
+            if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 e.stopPropagation();
                 if (sidebarSettingsSubmenu.classList.contains('active')) {
@@ -2646,87 +4347,77 @@ $stmt = null;
                 } else {
                     openSidebarSettings();
                 }
-            });
-            sidebarSettingsBtn.addEventListener('keydown', function(e){
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (sidebarSettingsSubmenu.classList.contains('active')) {
-                        closeSidebarSettings();
-                    } else {
-                        openSidebarSettings();
-                    }
-                }
-                if (e.key === 'Escape') {
-                    closeSidebarSettings();
-                }
-            });
-            document.addEventListener('click', function(e){
-                if (!sidebarSettingsSubmenu.contains(e.target) && !sidebarSettingsBtn.contains(e.target)) {
-                    closeSidebarSettings();
-                }
-            });
-            document.addEventListener('keydown', function(e){
-                if (e.key === 'Escape') {
-                    closeSidebarSettings();
-                }
-            });
-        }
-        const settingsLinks = document.querySelectorAll('#sidebar-settings-submenu .submenu-item');
-        if (settingsLinks && settingsLinks.length) {
-            settingsLinks.forEach(function(link){
-                link.addEventListener('click', function(){
-                    if (typeof closeSidebarSettings === 'function') closeSidebarSettings();
-                });
-            });
-        }
-        
-        window.addEventListener('load', function() {
-            const bars = document.querySelectorAll('.chart-bar-value');
-            bars.forEach(bar => {
-                const height = bar.style.height;
-                bar.style.height = '0%';
-                setTimeout(() => {
-                    bar.style.height = height;
-                }, 300);
+            }
+            if (e.key === 'Escape') {
+                closeSidebarSettings();
+            }
+        });
+        document.addEventListener('click', function(e){
+            if (!sidebarSettingsSubmenu.contains(e.target) && !sidebarSettingsBtn.contains(e.target)) {
+                closeSidebarSettings();
+            }
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') {
+                closeSidebarSettings();
+            }
+        });
+    }
+    const settingsLinks = document.querySelectorAll('#sidebar-settings-submenu .submenu-item');
+    if (settingsLinks && settingsLinks.length) {
+        settingsLinks.forEach(function(link){
+            link.addEventListener('click', function(){
+                if (typeof closeSidebarSettings === 'function') closeSidebarSettings();
             });
         });
-        
-        document.querySelectorAll('.card').forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-5px)';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = 'translateY(0)';
-            });
+    }
+    
+    window.addEventListener('load', function() {
+        const bars = document.querySelectorAll('.chart-bar-value');
+        bars.forEach(bar => {
+            const height = bar.style.height;
+            bar.style.height = '0%';
+            setTimeout(() => {
+                bar.style.height = height;
+            }, 300);
+        });
+    });
+    
+    document.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-5px)';
         });
         
-        function updateTime() {
-            const now = new Date();
-            const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-            const gmt8 = new Date(utc + (8 * 3600000));
-            
-            const hours = gmt8.getHours().toString().padStart(2, '0');
-            const minutes = gmt8.getMinutes().toString().padStart(2, '0');
-            const seconds = gmt8.getSeconds().toString().padStart(2, '0');
-            
-            const timeString = `${hours}:${minutes}:${seconds} UTC+8`;
-            document.getElementById('current-time').textContent = timeString;
-        }
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+        });
+    });
+    
+    function updateTime() {
+        const now = new Date();
+        const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const gmt8 = new Date(utc + (8 * 3600000));
         
-        updateTime();
-        setInterval(updateTime, 1000);
+        const hours = gmt8.getHours().toString().padStart(2, '0');
+        const minutes = gmt8.getMinutes().toString().padStart(2, '0');
+        const seconds = gmt8.getSeconds().toString().padStart(2, '0');
+        
+        const timeString = `${hours}:${minutes}:${seconds} UTC+8`;
+        document.getElementById('current-time').textContent = timeString;
+    }
+    
+    updateTime();
+    setInterval(updateTime, 1000);
 
-        const dashboardMenu = document.getElementById('dashboard-menu');
-        if (dashboardMenu) {
-            dashboardMenu.addEventListener('click', function(e){
-                e.preventDefault();
-                document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
-                document.getElementById('home-section').style.display = 'block';
-            });
-        }
-        const userMenu = document.getElementById('user-menu');
+    const dashboardMenu = document.getElementById('dashboard-menu');
+    if (dashboardMenu) {
+        dashboardMenu.addEventListener('click', function(e){
+            e.preventDefault();
+            document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
+            document.getElementById('home-section').style.display = 'block';
+        });
+    }
+    const userMenu = document.getElementById('user-menu');
         if (userMenu) {
             userMenu.addEventListener('click', function(e){
                 e.preventDefault();
@@ -3097,8 +4788,7 @@ $stmt = null;
                                 <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
                                 <div>Applied: <strong>${created}</strong></div>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                     const closeBtn = panel.querySelector('#volreg-details-close');
                     if (closeBtn) {
                         closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
@@ -3133,6 +4823,109 @@ $stmt = null;
                     }
                 }
                 if (acceptBtn) { await setStatus('accepted'); return; }
+                if (declineBtn) { await setStatus('declined'); return; }
+            });
+        }
+        const volregAcceptedTable = document.getElementById('volreg-accepted-table');
+        if (volregAcceptedTable) {
+            volregAcceptedTable.addEventListener('click', async function(e){
+                const row = e.target.closest('.volreg-row');
+                const viewBtn = e.target.closest('.volreg-view-btn');
+                const declineBtn = e.target.closest('.volreg-decline-btn');
+                if (!row) return;
+                if (viewBtn) {
+                    const panel = document.getElementById('volreg-details');
+                    panel.style.display = 'block';
+                    const name = row.getAttribute('data-name') || '—';
+                    const role = row.getAttribute('data-role') || 'Volunteer';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const zone = row.getAttribute('data-zone') || '—';
+                    const avail = row.getAttribute('data-availability') || '—';
+                    const days = row.getAttribute('data-days') || '—';
+                    const slots = row.getAttribute('data-slots') || '—';
+                    const night = row.getAttribute('data-night'); const nightLabel = night==='1'?'Yes':(night==='0'?'No':'—');
+                    const maxh = row.getAttribute('data-max') || '—';
+                    const roles = row.getAttribute('data-roles') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const prev = row.getAttribute('data-prev'); const prevLabel = prev==='1'?'Yes':(prev==='0'?'No':'—');
+                    const prevorg = row.getAttribute('data-prevorg') || '—';
+                    const years = row.getAttribute('data-years') || '—';
+                    const fit = row.getAttribute('data-fit'); const fitLabel = fit==='1'?'Yes':(fit==='0'?'No':'—');
+                    const medical = row.getAttribute('data-med') || '—';
+                    const longp = row.getAttribute('data-long'); const longLabel = longp==='1'?'Yes':(longp==='0'?'No':'—');
+                    const idurl = row.getAttribute('data-idurl') || '';
+                    const idSrc = idurl ? ('../' + idurl) : '';
+                    const created = row.getAttribute('data-created') || '';
+                    const status = row.getAttribute('data-status') || 'accepted';
+                    const badgeClass = status==='pending' ? 'badge-pending' : (status==='declined' ? 'badge-inactive' : 'badge-active');
+                    panel.innerHTML = `
+                        <div>
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div>
+                                    <div style="font-weight:600;font-size:16px;">${name}</div>
+                                    <div style="color:#6b7280;font-size:14px;">${role} • ${zone} • ${avail}</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-weight:600;">Valid ID</div>
+                                    ${idSrc ? `<img src="${idSrc}" alt="Valid ID" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">` : ''}
+                                </div>
+                            </div>
+                            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+                                <button class="secondary-button" id="volreg-details-close">Close</button>
+                            </div>
+                            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                <div>Contact: <strong>${contact}</strong></div>
+                                <div>Email: <strong>${email}</strong></div>
+                                <div>Preferred Days: <strong>${days}</strong></div>
+                                <div>Time Slots: <strong>${slots}</strong></div>
+                                <div>Night Duty: <strong>${nightLabel}</strong></div>
+                                <div>Max Hours/Week: <strong>${maxh}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Role Preferences: <strong>${roles}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Skills: <strong>${skills}</strong></div>
+                                <div>Previous Volunteer: <strong>${prevLabel}</strong></div>
+                                <div>Years of Experience: <strong>${years}</strong></div>
+                                <div>Physical Fit: <strong>${fitLabel}</strong></div>
+                                <div>Long Period Ability: <strong>${longLabel}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Previous Organization: <strong>${prevorg}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Medical Conditions: <strong>${medical}</strong></div>
+                                <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
+                                <div>Applied: <strong>${created}</strong></div>
+                            </div>
+                        </div>`;
+                    const closeBtn = panel.querySelector('#volreg-details-close');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
+                    }
+                    return;
+                }
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'volunteer_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const panel = document.getElementById('volreg-details');
+                            if (panel && panel.style.display !== 'none'){
+                                const badge = panel.querySelector('#volreg-status-badge');
+                                if (badge){
+                                    badge.textContent = data.status;
+                                    badge.className = 'badge ' + (data.status==='pending' ? 'badge-pending' : (data.status==='declined' ? 'badge-inactive' : 'badge-active'));
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
                 if (declineBtn) { await setStatus('declined'); return; }
             });
         }
@@ -3205,7 +4998,7 @@ $stmt = null;
                 localStorage.setItem('duty_roster', JSON.stringify(dutyRoster));
                 const panel = document.getElementById('duty-details');
                 panel.style.display = 'block';
-                panel.innerHTML = `<div><div style=\"font-weight:600;font-size:16px;\">${name}</div><div style=\"color:#6b7280;font-size:14px;\">${role} • ${type}</div><div style=\"margin-top:10px;\">Date: ${date || '—'} • Time: ${time || '—'}</div><div style=\"margin-top:10px;\">Zone/Location: ${zone || '—'}</div></div>`;
+                panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${role} • ${type}</div><div style="margin-top:10px;">Date: ${date || '—'} • Time: ${time || '—'}</div><div style="margin-top:10px;">Zone/Location: ${zone || '—'}</div></div>`;
             });
         }
 
@@ -3269,6 +5062,60 @@ $stmt = null;
             eventBack.addEventListener('click', function(){
                 document.querySelectorAll('.content-section').forEach(s => { s.style.display = 'none'; });
                 document.getElementById('home-section').style.display = 'block';
+            });
+        }
+        
+        const createEventBtn = document.getElementById('create-event-btn');
+        const eventCreateForm = document.getElementById('event-create-form');
+        const eventCreateClose = document.getElementById('event-create-close');
+        const eventCreateCancel = document.getElementById('event-create-cancel');
+        const eventsTableBody = document.querySelector('#events-table tbody');
+        const eventCreateStatus = document.getElementById('event-create-status');
+        if (createEventBtn) {
+            createEventBtn.addEventListener('click', function(){ openModal('event-create-modal'); });
+        }
+        if (eventCreateClose) {
+            eventCreateClose.addEventListener('click', function(){ closeModal('event-create-modal'); if (eventCreateStatus) eventCreateStatus.textContent=''; });
+        }
+        if (eventCreateCancel) {
+            eventCreateCancel.addEventListener('click', function(){ closeModal('event-create-modal'); if (eventCreateForm) eventCreateForm.reset(); if (eventCreateStatus) eventCreateStatus.textContent=''; });
+        }
+        if (eventCreateForm) {
+            eventCreateForm.addEventListener('submit', async function(e){
+                e.preventDefault();
+                if (eventCreateStatus) eventCreateStatus.textContent = '';
+                const fd = new FormData(eventCreateForm);
+                fd.append('action','events_create');
+                try{
+                    const res = await fetch('admin_dashboard.php', { method:'POST', body: fd, credentials:'same-origin' });
+                    const data = await res.json();
+                    if (data && data.success) {
+                        closeModal('event-create-modal');
+                        if (eventCreateForm) eventCreateForm.reset();
+                        if (eventsTableBody) {
+                            const firstRow = eventsTableBody.firstElementChild;
+                            if (firstRow && firstRow.tagName === 'TR') {
+                                const firstCell = firstRow.firstElementChild;
+                                if (firstCell && firstCell.colSpan >= 6 && /No events scheduled yet\./i.test(firstCell.textContent || '')) {
+                                    eventsTableBody.removeChild(firstRow);
+                                }
+                            }
+                            const tr = document.createElement('tr');
+                            const td1=document.createElement('td'); td1.textContent = data.event.title || '';
+                            const td2=document.createElement('td'); td2.textContent = data.event.event_date || '';
+                            const td3=document.createElement('td'); td3.textContent = data.event.event_time || '';
+                            const td4=document.createElement('td'); td4.textContent = data.event.location || '';
+                            const td5=document.createElement('td'); td5.textContent = data.event.status || 'Scheduled';
+                            const td6=document.createElement('td'); td6.textContent = data.event.created_at || '';
+                            tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5); tr.appendChild(td6);
+                            eventsTableBody.insertBefore(tr, eventsTableBody.firstChild);
+                        }
+                    } else {
+                        if (eventCreateStatus) eventCreateStatus.textContent = (data && data.error) ? data.error : 'Failed to create event';
+                    }
+                }catch(_){
+                    if (eventCreateStatus) eventCreateStatus.textContent = 'Network error. Please try again.';
+                }
             });
         }
 
@@ -3353,7 +5200,7 @@ $stmt = null;
                     if (panel) {
                         const statusLabel = rec.status === 'In' ? 'Checked In' : 'Checked Out';
                         panel.style.display = 'block';
-                        panel.innerHTML = `<div><div style=\"font-weight:600;font-size:16px;\">${name}</div><div style=\"color:#6b7280;font-size:14px;\">${statusLabel}</div><div style=\"margin-top:10px;\">Check-In: ${rec.check_in ? new Date(rec.check_in).toLocaleString() : '—'}</div><div style=\"margin-top:10px;\">Check-Out: ${rec.check_out ? new Date(rec.check_out).toLocaleString() : '—'}</div><div style=\"margin-top:10px;\">Participation: ${rec.participation || 0}</div></div>`;
+                        panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${statusLabel}</div><div style="margin-top:10px;">Check-In: ${rec.check_in ? new Date(rec.check_in).toLocaleString() : '—'}</div><div style="margin-top:10px;">Check-Out: ${rec.check_out ? new Date(rec.check_out).toLocaleString() : '—'}</div><div style="margin-top:10px;">Participation: ${rec.participation || 0}</div></div>`;
                     }
                     return;
                 }
@@ -3364,7 +5211,7 @@ $stmt = null;
                 if (panel) {
                     const statusLabel = rec.status === 'In' ? 'Checked In' : 'Checked Out';
                     panel.style.display = 'block';
-                    panel.innerHTML = `<div><div style=\"font-weight:600;font-size:16px;\">${name}</div><div style=\"color:#6b7280;font-size:14px;\">${statusLabel}</div><div style=\"margin-top:10px;\">Check-In: ${rec.check_in ? new Date(rec.check_in).toLocaleString() : '—'}</div><div style=\"margin-top:10px;\">Check-Out: ${rec.check_out ? new Date(rec.check_out).toLocaleString() : '—'}</div><div style=\"margin-top:10px;\">Participation: ${rec.participation || 0}</div></div>`;
+                    panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${statusLabel}</div><div style="margin-top:10px;">Check-In: ${rec.check_in ? new Date(rec.check_in).toLocaleString() : '—'}</div><div style="margin-top:10px;">Check-Out: ${rec.check_out ? new Date(rec.check_out).toLocaleString() : '—'}</div><div style="margin-top:10px;">Participation: ${rec.participation || 0}</div></div>`;
                 }
             });
         }
@@ -3698,7 +5545,7 @@ $stmt = null;
                 userData = (data && data.success) ? (data.users||[]) : [];
                 const counts = { ALL: userData.length, ADMIN:0, CAPTAIN:0, SECRETARY:0, TANOD:0, USER:0 };
                 userData.forEach(u=>{ const r=String(u.role||'').toUpperCase(); if (counts[r]!==undefined) counts[r]++; });
-                userRoleButtons.forEach(btn=>{ const r=btn.getAttribute('data-role'); btn.textContent = r.charAt(0)+r.slice(1).toLowerCase() + (counts[r]!==undefined ? ` (${counts[r]})` : ''); if (r==='ALL') btn.textContent = `All (${counts.ALL})`; });
+                userRoleButtons.forEach(btn=>{ const r=btn.getAttribute('data-role'); btn.textContent = r.charAt(0)+r.slice(1).toLowerCase() + ((counts[r]!==undefined) ? ` (${counts[r]})` : ''); if (r==='ALL') btn.textContent = `All (${counts.ALL})`; });
                 renderUsers();
             }catch(_){ userData = []; renderUsers(); }
         }
@@ -3756,19 +5603,103 @@ $stmt = null;
             });
         }
 
-        const registryTable = document.getElementById('registry-table');
-        if (registryTable) {
-            registryTable.addEventListener('click', function(e){
+        const registryPendingTable = document.getElementById('registry-pending-table');
+        const registryApprovedTable = document.getElementById('registry-approved-table');
+        const pendingMembersCount = document.getElementById('pending-members-count');
+        const approvedMembersCount = document.getElementById('approved-members-count');
+        function showRegistryDetails(row){
+            const details = document.getElementById('registry-details');
+            details.style.display = 'block';
+            const name = row.getAttribute('data-name');
+            const email = row.getAttribute('data-email');
+            const role = row.getAttribute('data-role');
+            details.innerHTML = `<div style="display:flex;align-items:center;gap:16px;"><img src="../img/cpas-logo.png" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;"><div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${email}</div><div class="badge badge-role" style="margin-top:6px;">${role}</div></div></div>`;
+        }
+        async function setVerified(id, status){
+            const fd = new URLSearchParams();
+            fd.set('action','user_set_verified');
+            fd.set('id', String(id));
+            fd.set('status', status);
+            const res = await fetch('admin_dashboard.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: fd, credentials: 'same-origin' });
+            return res.json().catch(()=>({success:false}));
+        }
+        function moveRowBetweenTables(row, toApproved){
+            const statusCell = row.querySelector('td:nth-child(4)');
+            const pendingBody = registryPendingTable ? registryPendingTable.querySelector('tbody') : null;
+            const approvedBody = registryApprovedTable ? registryApprovedTable.querySelector('tbody') : null;
+            function removePlaceholders(tbody){
+                if (!tbody) return;
+                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                    const td = tr.children[0];
+                    if (tr.children.length === 1 && td && td.getAttribute('colspan') === '5') { tr.remove(); }
+                });
+            }
+            function ensurePlaceholder(tbody, text){
+                if (!tbody) return;
+                const hasRows = tbody.querySelector('.registry-row') !== null;
+                if (!hasRows) {
+                    const tr = document.createElement('tr');
+                    const td = document.createElement('td');
+                    td.setAttribute('colspan','5');
+                    td.textContent = text;
+                    tr.appendChild(td);
+                    tbody.appendChild(tr);
+                }
+            }
+            if (toApproved) {
+                if (statusCell) statusCell.innerHTML = '<span class="badge badge-active">Approved</span>';
+                row.setAttribute('data-verified','1');
+                if (approvedBody) {
+                    removePlaceholders(approvedBody);
+                    approvedBody.appendChild(row);
+                }
+                if (pendingMembersCount) pendingMembersCount.textContent = String(Math.max(0, parseInt(pendingMembersCount.textContent||'0') - 1));
+                if (approvedMembersCount) approvedMembersCount.textContent = String(parseInt(approvedMembersCount.textContent||'0') + 1);
+                ensurePlaceholder(pendingBody, 'No pending accounts.');
+            } else {
+                if (statusCell) statusCell.innerHTML = '<span class="badge badge-pending">Pending</span>';
+                row.setAttribute('data-verified','0');
+                if (pendingBody) {
+                    removePlaceholders(pendingBody);
+                    pendingBody.appendChild(row);
+                }
+                if (approvedMembersCount) approvedMembersCount.textContent = String(Math.max(0, parseInt(approvedMembersCount.textContent||'0') - 1));
+                if (pendingMembersCount) pendingMembersCount.textContent = String(parseInt(pendingMembersCount.textContent||'0') + 1);
+                ensurePlaceholder(approvedBody, 'No approved accounts.');
+            }
+        }
+        function attachRegistryHandlers(tableEl){
+            if (!tableEl) return;
+            tableEl.addEventListener('click', async function(e){
                 const row = e.target.closest('.registry-row');
                 if (!row) return;
-                const details = document.getElementById('registry-details');
-                details.style.display = 'block';
-                const name = row.getAttribute('data-name');
-                const email = row.getAttribute('data-email');
-                const role = row.getAttribute('data-role');
-                details.innerHTML = `<div style="display:flex;align-items:center;gap:16px;"><img src="../img/cpas-logo.png" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;"><div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${email}</div><div class="badge badge-role" style="margin-top:6px;">${role}</div></div></div>`;
+                if (e.target.closest('.registry-view-btn')) {
+                    showRegistryDetails(row);
+                    return;
+                }
+                if (e.target.closest('.registry-approve-btn')) {
+                    const id = row.getAttribute('data-id');
+                    try {
+                        const data = await setVerified(id, 'approved');
+                        if (data && data.success) moveRowBetweenTables(row, true);
+                        else alert('Failed to approve');
+                    } catch(_){ alert('Network error'); }
+                    return;
+                }
+                if (e.target.closest('.registry-decline-btn')) {
+                    const id = row.getAttribute('data-id');
+                    try {
+                        const data = await setVerified(id, 'declined');
+                        if (data && data.success) moveRowBetweenTables(row, false);
+                        else alert('Failed to decline');
+                    } catch(_){ alert('Network error'); }
+                    return;
+                }
+                showRegistryDetails(row);
             });
         }
+        attachRegistryHandlers(registryPendingTable);
+        attachRegistryHandlers(registryApprovedTable);
 
         const obsBack = document.getElementById('obs-back');
         if (obsBack) {
@@ -3810,8 +5741,12 @@ $stmt = null;
                 if (row) {
                     const zi = row.querySelector('.zone-input');
                     const si = row.querySelector('.street-input');
+                    const di = row.querySelector('.assign-date-input');
+                    const ti = row.querySelector('.assign-time-input');
                     if (zi) zi.value = a.zone || '';
                     if (si) si.value = a.street || '';
+                    if (di) di.value = a.date || '';
+                    if (ti) ti.value = a.time || '';
                 }
             });
             assignTable.addEventListener('click', function(e){
@@ -3823,11 +5758,13 @@ $stmt = null;
                 const status = row.getAttribute('data-status');
                 const zone = row.querySelector('.zone-input').value.trim();
                 const street = row.querySelector('.street-input').value.trim();
+                const date = (row.querySelector('.assign-date-input').value || '').trim();
+                const time = (row.querySelector('.assign-time-input').value || '').trim();
                 const summary = document.getElementById('assign-details');
                 summary.style.display = 'block';
-                summary.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${status}</div><div style="margin-top:10px;">Zone: ${zone || '—'} | Street: ${street || '—'}</div></div>`;
+                summary.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${status}</div><div style="margin-top:10px;">Date: ${date || '—'} | Time: ${time || '—'}</div><div style="margin-top:10px;">Zone: ${zone || '—'} | Street: ${street || '—'}</div></div>`;
                 const existingIndex = savedAssignments.findIndex(x => String(x.id) === String(id));
-                const payload = { id, zone, street };
+                const payload = { id, zone, street, date, time };
                 if (existingIndex >= 0) savedAssignments[existingIndex] = payload; else savedAssignments.push(payload);
                 localStorage.setItem('bwc_assignments', JSON.stringify(savedAssignments));
             });
@@ -3861,9 +5798,10 @@ $stmt = null;
                     const deviceId = camDeviceIds[cid] || null;
                     const w = window.open('about:blank', 'camera_'+cid, 'width=1024,height=768,menubar=no,toolbar=no,location=no,status=no');
                     if (!w) { alert('Popup blocked. Allow popups for this site.'); return; }
-                    const constraintsStr = deviceId && !String(deviceId).startsWith('bluetooth:') ? `{ video: { deviceId: { exact: '${deviceId}' } }, audio: false }` : `{ video: true, audio: false }`;
+                    const constraintsObj = deviceId && !String(deviceId).startsWith('bluetooth:') ? { video: { deviceId: { exact: deviceId } }, audio: false } : { video: true, audio: false };
+                    const constraintsStr = JSON.stringify(constraintsObj);
                     w.document.open('text/html','replace');
-                    w.document.write(`<!DOCTYPE html><html><head><title>${name}</title><style>html,body{height:100%;margin:0;background:#1f2937;color:#fff;font:14px system-ui}.window{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start}.bar{width:100%;background:#2d3748;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 0 rgba(0,0,0,.3)}.bar .title{font-weight:600}.bar .sub{opacity:.7;font-size:12px}.stage{flex:1;display:flex;align-items:center;justify-content:center}#wrap{position:relative}video,canvas{max-width:100%;max-height:100%;background:#000}canvas{position:absolute;left:0;top:0}.btns{position:fixed;bottom:10px;right:10px;display:flex;gap:8px}button{background:#2563eb;border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}</style></head><body><div class=\"window\"><div class=\"bar\"><div class=\"title\">img</div><div class=\"sub\">VideoCapture(0)</div></div><div class=\"stage\"><div id=\"wrap\"><video id=\"v\" autoplay playsinline></video><canvas id=\"c\"></canvas></div></div><div class=\"btns\"><button id=\"snap\">Snapshot</button><button id=\"close\">Close</button></div></div><script>(async function(){function ls(u){return new Promise(function(r,i){var s=document.createElement('script');s.src=u;s.onload=r;s.onerror=i;document.head.appendChild(s);});}try{const cs=${constraintsStr};const st=await ((window.opener&&window.opener.navigator&&window.opener.navigator.mediaDevices)?window.opener.navigator.mediaDevices.getUserMedia(cs):navigator.mediaDevices.getUserMedia(cs));var v=document.getElementById('v');var c=document.getElementById('c');var x=c.getContext('2d');v.srcObject=st;v.muted=true;await v.play();await new Promise(function(r){v.onplaying=r});c.width=v.videoWidth||640;c.height=v.videoHeight||480;await ls('https://docs.opencv.org/4.x/opencv.js');await new Promise(function(r){if(cv&&cv['onRuntimeInitialized']){cv['onRuntimeInitialized']=r;}else{var t=setInterval(function(){if(cv&&cv['Mat']){clearInterval(t);r();}},50);}});var cl=new cv.CascadeClassifier();var xml=await (await fetch('https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml')).text();cv.FS_createDataFile('/', 'haarcascade_frontalface_default.xml', xml, true, false, false);cl.load('haarcascade_frontalface_default.xml');var src=new cv.Mat(c.height,c.width,cv.CV_8UC4);var g=new cv.Mat();var rv=new cv.RectVector();function tick(){x.drawImage(v,0,0,c.width,c.height);var im=x.getImageData(0,0,c.width,c.height);src.data.set(im.data);cv.cvtColor(src,g,cv.COLOR_RGBA2GRAY,0);cl.detectMultiScale(g,rv,1.15,4,0);x.strokeStyle='#2563eb';x.lineWidth=3;for(var i=0;i<rv.size();i++){var r=rv.get(i);x.strokeRect(r.x,r.y,r.width,r.height);}requestAnimationFrame(tick);}tick();document.getElementById('snap').onclick=function(){var a=document.createElement('a');a.href=c.toDataURL('image/png');a.download='snapshot.png';a.click();};document.getElementById('close').onclick=function(){window.close();};window.addEventListener('keydown',function(e){if(e.key==='Escape'){window.close();}});}catch(e){document.body.innerHTML='<div style=\"padding:20px;text-align:center\">'+String(e)+'</div>';}})();<\/script></body></html>`);
+                    w.document.write(`<!DOCTYPE html><html><head><title>${name}</title><style>html,body{height:100%;margin:0;background:#000;overflow:hidden;font:14px system-ui}.camera{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}video{width:100%;height:100%;object-fit:cover;background:transparent}.close{position:fixed;top:16px;right:16px;background:rgba(255,0,0,.9);color:#fff;border:none;border-radius:50%;width:44px;height:44px;font-size:20px;cursor:pointer;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.5)}.snap{position:fixed;bottom:16px;right:16px;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.5)}</style></head><body><div class="camera"><video id="v" autoplay playsinline></video><button id="x" class="close" title="Close">×</button><button id="snap" class="snap" title="Snapshot">Snapshot</button></div><script>(async function(){let s=null;function stop(){try{if(s&&s.getTracks){s.getTracks().forEach(t=>t.stop());}}catch(e){}s=null;}function snapshot(){try{const v=document.getElementById('v');const cn=document.createElement('canvas');cn.width=v.videoWidth||640;cn.height=v.videoHeight||480;const ctx=cn.getContext('2d');ctx.drawImage(v,0,0,cn.width,cn.height);const a=document.createElement('a');a.href=cn.toDataURL('image/png');a.download='snapshot.png';a.click();}catch(e){}}document.getElementById('x').onclick=function(){stop();window.close();};document.getElementById('snap').onclick=function(){snapshot();};window.addEventListener('keydown',function(e){if(e.key==='Escape'){stop();window.close();}});window.addEventListener('beforeunload',function(){stop();});window.addEventListener('pagehide',function(){stop();});try{const cs=${constraintsStr};s=await((window.opener&&window.opener.navigator&&window.opener.navigator.mediaDevices)?window.opener.navigator.mediaDevices.getUserMedia(cs):navigator.mediaDevices.getUserMedia(cs));const v=document.getElementById('v');v.srcObject=s;v.muted=true;await v.play();}catch(e){alert('Failed to open camera: '+(e&&e.message?e.message:e));window.close();}})();<\/script></body></html>`);
                     w.document.close();
                     try{ w.focus(); }catch(_){}
                     const panel = document.getElementById('live-details');
@@ -3926,18 +5864,66 @@ $stmt = null;
         const complaintTable = document.getElementById('complaint-table');
         if (complaintTable) {
             complaintTable.addEventListener('click', function(e){
+                const viewBtn = e.target.closest('.complaint-view-btn');
                 const row = e.target.closest('.complaint-row');
-                if (!row) return;
-                const panel = document.getElementById('complaint-details');
-                panel.style.display = 'block';
+                if (!row || !viewBtn) return;
                 const name = row.getAttribute('data-resident');
                 const issue = row.getAttribute('data-issue');
                 const cat = row.getAttribute('data-cat');
                 const loc = row.getAttribute('data-loc');
                 const at = row.getAttribute('data-at');
                 const status = row.getAttribute('data-status');
-                panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${cat} • ${loc}</div><div style="margin-top:10px;">${issue}</div><div style="margin-top:10px;">Submitted: ${at}</div><div style="margin-top:10px;" class="badge ${status==='Resolved'?'badge-resolved':'badge-pending'}">${status}</div></div>`;
+                const photo = row.getAttribute('data-photo') || '';
+                const video = row.getAttribute('data-video') || '';
+                const resEl = document.getElementById('cv-resident');
+                const issueEl = document.getElementById('cv-issue');
+                const catEl = document.getElementById('cv-category');
+                const locEl = document.getElementById('cv-location');
+                const atEl = document.getElementById('cv-at');
+                const stEl = document.getElementById('cv-status');
+                const phWrap = document.getElementById('cv-photo-wrap');
+                const phEl = document.getElementById('cv-photo');
+                const phDl = document.getElementById('cv-photo-download');
+                const vdWrap = document.getElementById('cv-video-wrap');
+                const vdEl = document.getElementById('cv-video');
+                const vdDl = document.getElementById('cv-video-download');
+                if (resEl) resEl.textContent = name || '—';
+                if (issueEl) issueEl.textContent = issue || '—';
+                if (catEl) catEl.textContent = cat || '—';
+                if (locEl) locEl.textContent = loc || '—';
+                if (atEl) atEl.textContent = at || '—';
+                if (stEl) {
+                    stEl.textContent = status || 'Pending';
+                    stEl.className = status === 'Resolved' ? 'badge badge-resolved' : 'badge badge-pending';
+                }
+                if (phWrap && phEl && phDl) {
+                    if (photo) {
+                        phWrap.style.display = 'block';
+                        phEl.src = photo;
+                        phDl.href = photo;
+                    } else {
+                        phWrap.style.display = 'none';
+                        phEl.src = '';
+                        phDl.href = '#';
+                    }
+                }
+                if (vdWrap && vdEl && vdDl) {
+                    if (video) {
+                        vdWrap.style.display = 'block';
+                        vdEl.src = video;
+                        vdDl.href = video;
+                    } else {
+                        vdWrap.style.display = 'none';
+                        vdEl.src = '';
+                        vdDl.href = '#';
+                    }
+                }
+                openModal('complaint-view-modal');
             });
+        }
+        const complaintViewClose = document.getElementById('complaint-view-close');
+        if (complaintViewClose) {
+            complaintViewClose.addEventListener('click', function(){ closeModal('complaint-view-modal'); });
         }
 
         const statusBack = document.getElementById('status-back');
@@ -4103,7 +6089,7 @@ $stmt = null;
                 localStorage.setItem('volunteer_tasks', JSON.stringify(tasksStore));
                 const panel = document.getElementById('task-details');
                 panel.style.display = 'block';
-                panel.innerHTML = `<div><div style=\"font-weight:600;font-size:16px;\">${name}</div><div style=\"color:#6b7280;font-size:14px;\">${role} • ${type}</div><div style=\"margin-top:10px;\">Date: ${date || '—'} • Time: ${time || '—'}</div><div style=\"margin-top:10px;\">Notes: ${notes || '—'}</div></div>`;
+                panel.innerHTML = `<div><div style="font-weight:600;font-size:16px;">${name}</div><div style="color:#6b7280;font-size:14px;">${role} • ${type}</div><div style="margin-top:10px;">Date: ${date || '—'} • Time: ${time || '—'}</div><div style="margin-top:10px;">Notes: ${notes || '—'}</div></div>`;
             });
         }
 
