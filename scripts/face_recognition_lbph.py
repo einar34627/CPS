@@ -1,255 +1,293 @@
 # file: setup_face_recognition.py
 #!/usr/bin/env python3
 """
-Setup script for Face Recognition System
-Run this first to install dependencies and set up the system
+Face Recognition using LBPH (Local Binary Patterns Histograms)
+For Community Policing and Surveillance System
 """
 
+import cv2
+import numpy as np
 import os
+import json
 import sys
-import subprocess
-import platform
+import argparse
+from datetime import datetime
+import pickle
 
-def check_python_version():
-    """Check Python version"""
-    print("Checking Python version...")
-    if sys.version_info < (3, 6):
-        print(f"ERROR: Python 3.6+ required. You have {sys.version}")
-        return False
-    print(f"✓ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    return True
-
-def install_dependencies():
-    """Install required Python packages"""
-    print("\nInstalling dependencies...")
-    
-    packages = [
-        "opencv-python",
-        "opencv-contrib-python",
-        "numpy",
-        "pillow"
-    ]
-    
-    try:
-        for package in packages:
-            print(f"Installing {package}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        print("✓ All dependencies installed successfully!")
-        return True
-    except Exception as e:
-        print(f"ERROR: Failed to install dependencies: {e}")
-        return False
-
-def create_directories():
-    """Create necessary directories"""
-    print("\nCreating directories...")
-    
-    dirs = [
-        "dataset",
-        "models",
-        "training_images",
-        "exports"
-    ]
-    
-    for dir_name in dirs:
-        os.makedirs(dir_name, exist_ok=True)
-        print(f"✓ Created: {dir_name}/")
-    
-    return True
-
-def download_cascade_files():
-    """Download Haar cascade files if missing"""
-    print("\nChecking for cascade files...")
-    
-    import cv2
-    cascade_path = cv2.data.haarcascades
-    
-    if not os.path.exists(cascade_path):
-        print("WARNING: Cascade files not found!")
-        print("Download from: https://github.com/opencv/opencv/tree/master/data/haarcascades")
-        print("Place in: C:/opencv/data/haarcascades/ (Windows) or similar")
-        return False
-    
-    print(f"✓ Cascade files found at: {cascade_path}")
-    return True
-
-def create_sample_dataset():
-    """Create a sample dataset structure"""
-    print("\nCreating sample dataset structure...")
-    
-    sample_structure = """
-dataset/
-├── John_Doe/
-│   ├── john_001.jpg
-│   ├── john_002.jpg
-│   └── john_003.jpg
-├── Jane_Smith/
-│   ├── jane_001.jpg
-│   └── jane_002.jpg
-└── README.txt
-    """
-    
-    readme_path = os.path.join("dataset", "README.txt")
-    with open(readme_path, "w") as f:
-        f.write("FACE RECOGNITION DATASET\n")
-        f.write("=" * 40 + "\n")
-        f.write("Place face images in folders named after each person.\n")
-        f.write("Each folder should contain 10-20 images of that person.\n")
-        f.write("Images should show the face clearly in different conditions.\n")
-        f.write("\nRecommended image format: .jpg, 200x200 pixels, grayscale\n")
-    
-    print("✓ Sample structure created")
-    print(sample_structure)
-    return True
-
-def create_batch_files():
-    """Create batch files for easy execution"""
-    print("\nCreating batch files...")
-    
-    # Windows batch file
-    if platform.system() == "Windows":
-        batch_content = """@echo off
-echo ========================================
-echo FACE RECOGNITION SYSTEM
-echo ========================================
-echo.
-echo Options:
-echo 1. Interactive Menu
-echo 2. Train Model
-echo 3. Run Recognition
-echo 4. Register New Person
-echo.
-set /p choice="Enter choice (1-4): "
-
-if "%choice%"=="1" (
-    python face_recognition_lbph.py --interactive
-) else if "%choice%"=="2" (
-    python face_recognition_lbph.py --train
-) else if "%choice%"=="3" (
-    python face_recognition_lbph.py --recognize
-) else if "%choice%"=="4" (
-    set /p name="Enter person's name: "
-    python face_recognition_lbph.py --register "%name%"
-) else (
-    echo Invalid choice!
-)
-
-pause
-"""
+class FaceRecognizerLBPH:
+    def __init__(self, base_dir='.'):
+        """
+        Initialize the LBPH face recognizer
         
-        with open("face_recognition.bat", "w") as f:
-            f.write(batch_content)
-        print("✓ Created: face_recognition.bat")
+        Args:
+            base_dir (str): Base directory for storing models and faces
+        """
+        self.base_dir = base_dir
+        self.faces_dir = os.path.join(base_dir, 'faces')
+        self.training_dir = os.path.join(self.faces_dir, 'training')
+        self.models_dir = os.path.join(self.faces_dir, 'models')
+        self.temp_dir = os.path.join(self.faces_dir, 'temp')
+        
+        # Create directories if they don't exist
+        os.makedirs(self.training_dir, exist_ok=True)
+        os.makedirs(self.models_dir, exist_ok=True)
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # Initialize face recognizer
+        self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+        
+        # Load existing model if available
+        self.model_file = os.path.join(self.models_dir, 'face_model.yml')
+        self.labels_file = os.path.join(self.models_dir, 'labels.pkl')
+        
+        self.labels = {}
+        self.next_label_id = 0
+        
+        self.load_model()
     
-    # Linux/Mac bash script
-    bash_content = """#!/bin/bash
-echo "========================================"
-echo "FACE RECOGNITION SYSTEM"
-echo "========================================"
-echo ""
-echo "Options:"
-echo "1. Interactive Menu"
-echo "2. Train Model"
-echo "3. Run Recognition"
-echo "4. Register New Person"
-echo ""
-read -p "Enter choice (1-4): " choice
-
-case $choice in
-    1)
-        python3 face_recognition_lbph.py --interactive
-        ;;
-    2)
-        python3 face_recognition_lbph.py --train
-        ;;
-    3)
-        python3 face_recognition_lbph.py --recognize
-        ;;
-    4)
-        read -p "Enter person's name: " name
-        python3 face_recognition_lbph.py --register "$name"
-        ;;
-    *)
-        echo "Invalid choice!"
-        ;;
-esac
-"""
+    def load_model(self):
+        """Load trained model and labels"""
+        try:
+            if os.path.exists(self.model_file):
+                self.face_recognizer.read(self.model_file)
+                print(f"Model loaded from {self.model_file}")
+            
+            if os.path.exists(self.labels_file):
+                with open(self.labels_file, 'rb') as f:
+                    self.labels = pickle.load(f)
+                if self.labels:
+                    self.next_label_id = max(self.labels.keys()) + 1
+                else:
+                    self.next_label_id = 0
+                print(f"Labels loaded: {len(self.labels)} faces")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            self.labels = {}
+            self.next_label_id = 0
     
-    with open("face_recognition.sh", "w") as f:
-        f.write(bash_content)
+    def save_model(self):
+        """Save trained model and labels"""
+        try:
+            self.face_recognizer.write(self.model_file)
+            with open(self.labels_file, 'wb') as f:
+                pickle.dump(self.labels, f)
+            print(f"Model saved to {self.model_file}")
+            print(f"Labels saved: {self.labels}")
+            return True
+        except Exception as e:
+            print(f"Error saving model: {e}")
+            return False
     
-    # Make executable on Unix-like systems
-    if platform.system() != "Windows":
-        os.chmod("face_recognition.sh", 0o755)
+    def detect_faces(self, image):
+        """
+        Detect faces in an image
+        
+        Args:
+            image: numpy array image
+            
+        Returns:
+            list: List of face bounding boxes (x, y, w, h)
+        """
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30)
+        )
+        return faces
     
-    print("✓ Created: face_recognition.sh")
-    return True
-
-def print_usage_instructions():
-    """Print usage instructions"""
-    print("\n" + "="*60)
-    print("SETUP COMPLETE!")
-    print("="*60)
-    print("\nUSAGE INSTRUCTIONS:")
-    print("-" * 40)
-    print("1. INTERACTIVE MENU (Recommended):")
-    print("   python face_recognition_lbph.py --interactive")
-    print("\n2. REGISTER A NEW PERSON:")
-    print("   python face_recognition_lbph.py --register \"Your Name\"")
-    print("\n3. TRAIN MODEL:")
-    print("   python face_recognition_lbph.py --train")
-    print("\n4. RUN RECOGNITION:")
-    print("   python face_recognition_lbph.py --recognize")
-    print("\n5. QUICK SETUP (All-in-one):")
-    print("   python face_recognition_lbph.py")
-    print("\n" + "="*60)
-    print("NEXT STEPS:")
-    print("-" * 40)
-    print("1. Run the interactive menu to get started")
-    print("2. Register yourself using option 1")
-    print("3. Capture 15-20 images of your face")
-    print("4. Train the model")
-    print("5. Start recognition!")
-    print("="*60)
-
-def main():
-    """Main setup function"""
-    print("="*60)
-    print("FACE RECOGNITION SYSTEM SETUP")
-    print("="*60)
+    def preprocess_face(self, face_image):
+        """
+        Preprocess face image for recognition
+        
+        Args:
+            face_image: numpy array of face region
+            
+        Returns:
+            numpy array: Preprocessed grayscale face image
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
+        
+        # Resize to standard size
+        gray = cv2.resize(gray, (100, 100))
+        
+        # Apply histogram equalization for better contrast
+        gray = cv2.equalizeHist(gray)
+        
+        return gray
     
-    steps = [
-        ("Python Version Check", check_python_version),
-        ("Install Dependencies", install_dependencies),
-        ("Create Directories", create_directories),
-        ("Check Cascade Files", download_cascade_files),
-        ("Create Sample Dataset", create_sample_dataset),
-        ("Create Batch Files", create_batch_files),
-    ]
+    def train_from_directory(self):
+        """
+        Train the face recognizer from the training directory
+        
+        Returns:
+            dict: Training results
+        """
+        print("Starting training from directory...")
+        
+        # Scan training directory for images
+        training_data = {}
+        
+        # Get all image files
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+        for filename in os.listdir(self.training_dir):
+            if any(filename.lower().endswith(ext) for ext in image_extensions):
+                # Parse name from filename (format: face_name_timestamp_id.ext)
+                parts = filename.split('_')
+                if len(parts) >= 2:
+                    name = parts[1]  # Get the name part
+                    
+                    if name not in training_data:
+                        training_data[name] = []
+                    
+                    image_path = os.path.join(self.training_dir, filename)
+                    training_data[name].append(image_path)
+        
+        if not training_data:
+            return {
+                'success': False,
+                'error': 'No training images found',
+                'faces_trained': 0
+            }
+        
+        # Prepare training data
+        faces = []
+        labels = []
+        label_ids = {}
+        current_label_id = 0
+        
+        for name, image_paths in training_data.items():
+            if name not in label_ids:
+                label_ids[name] = current_label_id
+                current_label_id += 1
+            
+            for image_path in image_paths:
+                try:
+                    # Load image
+                    image = cv2.imread(image_path)
+                    if image is None:
+                        print(f"Failed to load image: {image_path}")
+                        continue
+                    
+                    # Detect face
+                    face_rects = self.detect_faces(image)
+                    
+                    if len(face_rects) == 0:
+                        print(f"No face detected in {image_path}")
+                        continue
+                    
+                    # Use the first face found
+                    x, y, w, h = face_rects[0]
+                    face_roi = image[y:y+h, x:x+w]
+                    
+                    # Preprocess face
+                    processed_face = self.preprocess_face(face_roi)
+                    
+                    # Add to training data
+                    faces.append(processed_face)
+                    labels.append(label_ids[name])
+                    
+                    print(f"Added training sample: {name} from {image_path}")
+                    
+                except Exception as e:
+                    print(f"Error processing {image_path}: {e}")
+        
+        if not faces:
+            return {
+                'success': False,
+                'error': 'No valid faces found for training',
+                'faces_trained': 0
+            }
+        
+        # Train the recognizer
+        try:
+            self.face_recognizer.train(faces, np.array(labels))
+            
+            # Update labels dictionary
+            self.labels = {v: k for k, v in label_ids.items()}
+            self.next_label_id = current_label_id
+            
+            # Save the model
+            self.save_model()
+            
+            return {
+                'success': True,
+                'message': f'Model trained with {len(faces)} faces from {len(label_ids)} people',
+                'faces_trained': len(faces),
+                'people_count': len(label_ids)
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Training failed: {str(e)}',
+                'faces_trained': 0
+            }
     
-    success = True
-    for step_name, step_func in steps:
-        print(f"\n[{step_name}]")
-        if not step_func():
-            success = False
-            print(f"⚠ {step_name} failed!")
-            break
-    
-    if success:
-        print_usage_instructions()
-        print("\nSetup completed successfully!")
-    else:
-        print("\n⚠ Setup completed with some errors.")
-        print("Please fix the issues above and try again.")
-    
-    return success
-
-if __name__ == "__main__":
-    try:
-        if main():
-            sys.exit(0)
-        else:
-            sys.exit(1)
-    except KeyboardInterrupt:
-        print("\n\nSetup cancelled by user.")
-        sys.exit(1)
+    def train_single_face(self, image_path, name, role=None):
+        """
+        Train a single face
+        
+        Args:
+            image_path (str): Path to face image
+            name (str): Name of the person
+            role (str, optional): Role/position of the person
+            
+        Returns:
+            dict: Training results
+        """
+        try:
+            image = cv2.imread(image_path)
+            if image is None:
+                return {
+                    'success': False,
+                    'error': f'Cannot read image: {image_path}',
+                }
+            face_rects = self.detect_faces(image)
+            if len(face_rects) == 0:
+                return {
+                    'success': False,
+                    'error': 'No face detected in provided image',
+                }
+            x, y, w, h = face_rects[0]
+            face_roi = image[y:y+h, x:x+w]
+            processed_face = self.preprocess_face(face_roi)
+            existing_id = None
+            for lid, n in self.labels.items():
+                if n == name:
+                    existing_id = lid
+                    break
+            if existing_id is None:
+                label_id = self.next_label_id
+                self.labels[label_id] = name
+                self.next_label_id += 1
+            else:
+                label_id = existing_id
+            try:
+                self.face_recognizer.update([processed_face], np.array([label_id]))
+            except Exception:
+                self.face_recognizer.train([processed_face], np.array([label_id]))
+            self.save_model()
+            try:
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                out_name = f'face_{name}_{ts}_{label_id}.png'
+                out_path = os.path.join(self.training_dir, out_name)
+                cv2.imwrite(out_path, face_roi)
+            except Exception:
+                pass
+            return {
+                'success': True,
+                'message': f'Trained face for {name}',
+                'label_id': int(label_id),
+                'face_box': {'x': int(x), 'y': int(y), 'w': int(w), 'h': int(h)}
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Training error: {str(e)}',
+            }
