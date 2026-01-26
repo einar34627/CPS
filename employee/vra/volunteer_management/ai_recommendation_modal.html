@@ -1,0 +1,47 @@
+<!-- Add AI Recommendation Modal to approve_applications.php (add before closing body tag) -->
+
+<!-- AI Recommendation Modal -->
+<div class="modal-overlay" id="ai-recommendation-modal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🤖 AI Unit Recommendation</h2>
+            <button class="modal-close" id="ai-modal-close">&times;</button>
+        </div>
+        <div class="modal-body" id="ai-modal-body">
+            <style>
+                .loader {
+                    width: 50px;
+                    aspect-ratio: 1;
+                    border-radius: 50%;
+                    border: 8px solid #514b82;
+                    animation:
+                        l20-1 0.8s infinite linear alternate,
+                        l20-2 1.6s infinite linear;
+                    margin: 0 auto 12px;
+                }
+                @keyframes l20-1 {
+                    0%    {clip-path: polygon(50% 50%,0       0,  50%   0%,  50%    0%, 50%    0%, 50%    0%, 50%    0% )}
+                    12.5% {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100%   0%, 100%   0%, 100%   0% )}
+                    25%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 100% 100%, 100% 100% )}
+                    50%   {clip-path: polygon(50% 50%,0       0,  50%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+                    62.5% {clip-path: polygon(50% 50%,100%    0, 100%   0%,  100%   0%, 100% 100%, 50%  100%, 0%   100% )}
+                    75%   {clip-path: polygon(50% 50%,100% 100%, 100% 100%,  100% 100%, 100% 100%, 50%  100%, 0%   100% )}
+                    100%  {clip-path: polygon(50% 50%,50%  100%,  50% 100%,   50% 100%,  50% 100%, 50%  100%, 0%   100% )}
+                }
+                @keyframes l20-2 {
+                    0%    {transform:scaleY(1)  rotate(0deg)}
+                    49.99%{transform:scaleY(1)  rotate(135deg)}
+                    50%   {transform:scaleY(-1) rotate(0deg)}
+                    100%  {transform:scaleY(-1) rotate(-135deg)}
+                }
+            </style>
+            <div style="text-align: center; padding: 40px;">
+                <div class="loader"></div>
+                <p style="margin-top: 16px; color: var(--text-light);">Analyzing volunteer skills and finding best unit match...</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-button view-button" id="ai-modal-close-btn">Close</button>
+        </div>
+    </div>
+</div>
