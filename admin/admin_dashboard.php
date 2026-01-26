@@ -2172,6 +2172,39 @@ $stmt = null;
                         <div class="registry-title">Volunteer Registry Database</div>
                         <button class="secondary-button" id="volreg-back">Back to Dashboard</button>
                     </div>
+                    <?php
+                        $acceptedVolunteers = array_filter($volunteers, function($v){ $st = strtolower($v['status'] ?? ''); return $st === 'accepted'; });
+                        $pendingVolunteers = array_filter($volunteers, function($v){ $st = strtolower($v['status'] ?? ''); return $st === 'pending'; });
+                        $totalVolunteers = count($volunteers);
+                        $acceptedCount = count($acceptedVolunteers);
+                        $pendingCount = count($pendingVolunteers);
+                    ?>
+                    <div class="stats-grid" style="margin-top:16px;">
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Members</span>
+                            </div>
+                            <div class="stat-value"><?php echo $totalVolunteers; ?></div>
+                            <div class="stat-info"><span>Total volunteers</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">New Accept</span>
+                            </div>
+                            <div class="stat-value"><?php echo $acceptedCount; ?></div>
+                            <div class="stat-info"><span>Accepted accounts</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Pending</span>
+                            </div>
+                            <div class="stat-value"><?php echo $pendingCount; ?></div>
+                            <div class="stat-info"><span>Awaiting approval</span></div>
+                        </div>
+                    </div>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Pending Accounts</div>
+                    </div>
                     <table class="assign-table" id="volreg-table">
                         <thead>
                             <tr>
@@ -2185,7 +2218,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($volunteers as $v): ?>
+                            <?php foreach ($pendingVolunteers as $v): ?>
                                 <?php
                                     $id = (int)($v['id'] ?? 0);
                                     $name = htmlspecialchars($v['name'] ?? '');
@@ -2221,7 +2254,64 @@ $stmt = null;
                                     <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="primary-button volreg-accept-btn">Accept</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($volunteers)): ?>
+                            <?php if (empty($pendingVolunteers)): ?>
+                                <tr><td colspan="7">No volunteers found.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Accepted Members</div>
+                    </div>
+                    <table class="assign-table" id="volreg-accepted-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Role</th>
+                                <th>Contact</th>
+                                <th>Email</th>
+                                <th>Zone</th>
+                                <th>Availability</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($acceptedVolunteers as $v): ?>
+                                <?php
+                                    $id = (int)($v['id'] ?? 0);
+                                    $name = htmlspecialchars($v['name'] ?? '');
+                                    $roleLabel = htmlspecialchars($v['role'] ?? '');
+                                    $contact = htmlspecialchars($v['contact'] ?? '');
+                                    $email = htmlspecialchars($v['email'] ?? '');
+                                    $zone = htmlspecialchars($v['zone'] ?? '');
+                                    $avail = htmlspecialchars($v['availability'] ?? '');
+                                ?>
+                                <tr class="volreg-row" data-id="<?php echo $id; ?>" data-name="<?php echo $name; ?>" data-role="<?php echo $roleLabel; ?>" data-contact="<?php echo $contact; ?>" data-email="<?php echo $email; ?>" data-zone="<?php echo $zone; ?>" data-availability="<?php echo $avail; ?>"
+                                    data-days="<?php echo htmlspecialchars($v['preferred_days'] ?? ''); ?>"
+                                    data-slots="<?php echo htmlspecialchars($v['time_slots'] ?? ''); ?>"
+                                    data-night="<?php echo isset($v['night_duty']) ? (int)$v['night_duty'] : 0; ?>"
+                                    data-max="<?php echo isset($v['max_hours']) ? (int)$v['max_hours'] : 0; ?>"
+                                    data-roles="<?php echo htmlspecialchars($v['role_prefs'] ?? ''); ?>"
+                                    data-skills="<?php echo htmlspecialchars($v['skills'] ?? ''); ?>"
+                                    data-prev="<?php echo isset($v['previous_volunteer']) ? (int)$v['previous_volunteer'] : 0; ?>"
+                                    data-prevorg="<?php echo htmlspecialchars($v['prev_org'] ?? ''); ?>"
+                                    data-years="<?php echo isset($v['years_experience']) ? (int)$v['years_experience'] : 0; ?>"
+                                    data-fit="<?php echo isset($v['physical_fit']) ? (int)$v['physical_fit'] : ''; ?>"
+                                    data-med="<?php echo htmlspecialchars($v['medical_conditions'] ?? ''); ?>"
+                                    data-long="<?php echo isset($v['long_period']) ? (int)$v['long_period'] : ''; ?>"
+                                    data-idurl="<?php echo htmlspecialchars($v['valid_id_url'] ?? ''); ?>"
+                                    data-status="<?php echo htmlspecialchars($v['status'] ?? ''); ?>"
+                                    data-created="<?php echo htmlspecialchars($v['created_at'] ?? ''); ?>"
+                                >
+                                    <td><?php echo $name; ?></td>
+                                    <td><?php echo $roleLabel; ?></td>
+                                    <td><?php echo $contact; ?></td>
+                                    <td><?php echo $email; ?></td>
+                                    <td><?php echo $zone; ?></td>
+                                    <td><?php echo $avail; ?></td>
+                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($acceptedVolunteers)): ?>
                                 <tr><td colspan="7">No volunteers found.</td></tr>
                             <?php endif; ?>
                         </tbody>
@@ -2716,15 +2806,31 @@ $stmt = null;
                             <?php endif; ?>
                         </tbody>
                     </table>
-                    
+                    <style>
+                        #event-create-modal .modal-input{font-size:18px;padding:14px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;}
+                        #event-create-modal select.modal-input{font-size:18px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;height:44px;}
+                        #event-create-modal input::placeholder,#event-create-modal textarea::placeholder{font-size:16px;opacity:.85;color:#6b7280;}
+                        #event-create-modal input[type="date"],#event-create-modal input[type="time"]{height:44px;}
+                    </style>
                     <div id="event-create-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
-                        <div style="background:#fff;width:640px;max-width:92%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                        <div style="background:#fff;width:800px;max-width:96%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
                             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
                                 <div style="font-weight:600;">Create Event</div>
                                 <button class="secondary-button" id="event-create-close">Close</button>
                             </div>
                             <form id="event-create-form" style="padding:16px;display:grid;gap:12px;">
-                                <input class="modal-input" type="text" name="title" placeholder="Event title" required>
+                                <select class="modal-input" name="title" required>
+                                    <option value="">Select event title</option>
+                                    <option>-TESDA TRAINING ORIENTATION</option>
+                                    <option>-ANTI- DENGUE CAMPAIGN</option>
+                                    <option>-BASKETBALL LEAGUE</option>
+                                    <option>-𝑯𝑰𝑽 𝑨𝑾𝑨𝑹𝑬𝑵𝑬𝑺𝑺 𝑪𝑨𝑴𝑷𝑨𝑰𝑮𝑵</option>
+                                    <option>-DEWORMING ACTIVITY</option>
+                                    <option>-DRUG ABUSE PREVENTION AND EDUCATION</option>
+                                    <option>-OPLAN LIGTAS AT LAKAS NG PAMAYANAN</option>
+                                    <option>-𝐕𝐨𝐥𝐮𝐧𝐭𝐞𝐞𝐫𝐢𝐧𝐠 𝐎𝐩𝐩𝐨𝐫𝐭𝐮𝐧𝐢𝐭𝐢𝐞𝐬 𝐢𝐧 𝐂𝐢𝐯𝐢𝐜 𝐄𝐧𝐠𝐚𝐠𝐞𝐦𝐞𝐧𝐭 𝐚𝐧𝐝 𝐒𝐞𝐫𝐯𝐢𝐜𝐞” (𝐕𝐎𝐈𝐂𝐄𝐒)</option>
+                                    <option>-BLOOD LETTING</option>
+                                </select>
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                                     <input class="modal-input" type="date" name="date" required>
                                     <input class="modal-input" type="time" name="time">
@@ -4720,6 +4826,109 @@ $stmt = null;
                 if (declineBtn) { await setStatus('declined'); return; }
             });
         }
+        const volregAcceptedTable = document.getElementById('volreg-accepted-table');
+        if (volregAcceptedTable) {
+            volregAcceptedTable.addEventListener('click', async function(e){
+                const row = e.target.closest('.volreg-row');
+                const viewBtn = e.target.closest('.volreg-view-btn');
+                const declineBtn = e.target.closest('.volreg-decline-btn');
+                if (!row) return;
+                if (viewBtn) {
+                    const panel = document.getElementById('volreg-details');
+                    panel.style.display = 'block';
+                    const name = row.getAttribute('data-name') || '—';
+                    const role = row.getAttribute('data-role') || 'Volunteer';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const zone = row.getAttribute('data-zone') || '—';
+                    const avail = row.getAttribute('data-availability') || '—';
+                    const days = row.getAttribute('data-days') || '—';
+                    const slots = row.getAttribute('data-slots') || '—';
+                    const night = row.getAttribute('data-night'); const nightLabel = night==='1'?'Yes':(night==='0'?'No':'—');
+                    const maxh = row.getAttribute('data-max') || '—';
+                    const roles = row.getAttribute('data-roles') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const prev = row.getAttribute('data-prev'); const prevLabel = prev==='1'?'Yes':(prev==='0'?'No':'—');
+                    const prevorg = row.getAttribute('data-prevorg') || '—';
+                    const years = row.getAttribute('data-years') || '—';
+                    const fit = row.getAttribute('data-fit'); const fitLabel = fit==='1'?'Yes':(fit==='0'?'No':'—');
+                    const medical = row.getAttribute('data-med') || '—';
+                    const longp = row.getAttribute('data-long'); const longLabel = longp==='1'?'Yes':(longp==='0'?'No':'—');
+                    const idurl = row.getAttribute('data-idurl') || '';
+                    const idSrc = idurl ? ('../' + idurl) : '';
+                    const created = row.getAttribute('data-created') || '';
+                    const status = row.getAttribute('data-status') || 'accepted';
+                    const badgeClass = status==='pending' ? 'badge-pending' : (status==='declined' ? 'badge-inactive' : 'badge-active');
+                    panel.innerHTML = `
+                        <div>
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                                <div>
+                                    <div style="font-weight:600;font-size:16px;">${name}</div>
+                                    <div style="color:#6b7280;font-size:14px;">${role} • ${zone} • ${avail}</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-weight:600;">Valid ID</div>
+                                    ${idSrc ? `<img src="${idSrc}" alt="Valid ID" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">` : ''}
+                                </div>
+                            </div>
+                            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+                                <button class="secondary-button" id="volreg-details-close">Close</button>
+                            </div>
+                            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                <div>Contact: <strong>${contact}</strong></div>
+                                <div>Email: <strong>${email}</strong></div>
+                                <div>Preferred Days: <strong>${days}</strong></div>
+                                <div>Time Slots: <strong>${slots}</strong></div>
+                                <div>Night Duty: <strong>${nightLabel}</strong></div>
+                                <div>Max Hours/Week: <strong>${maxh}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Role Preferences: <strong>${roles}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Skills: <strong>${skills}</strong></div>
+                                <div>Previous Volunteer: <strong>${prevLabel}</strong></div>
+                                <div>Years of Experience: <strong>${years}</strong></div>
+                                <div>Physical Fit: <strong>${fitLabel}</strong></div>
+                                <div>Long Period Ability: <strong>${longLabel}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Previous Organization: <strong>${prevorg}</strong></div>
+                                <div class="full" style="grid-column:1/-1;">Medical Conditions: <strong>${medical}</strong></div>
+                                <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
+                                <div>Applied: <strong>${created}</strong></div>
+                            </div>
+                        </div>`;
+                    const closeBtn = panel.querySelector('#volreg-details-close');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
+                    }
+                    return;
+                }
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'volunteer_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const panel = document.getElementById('volreg-details');
+                            if (panel && panel.style.display !== 'none'){
+                                const badge = panel.querySelector('#volreg-status-badge');
+                                if (badge){
+                                    badge.textContent = data.status;
+                                    badge.className = 'badge ' + (data.status==='pending' ? 'badge-pending' : (data.status==='declined' ? 'badge-inactive' : 'badge-active'));
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
+                if (declineBtn) { await setStatus('declined'); return; }
+            });
+        }
 
         const eventregTable = document.getElementById('eventreg-table');
         if (eventregTable) {
@@ -4884,6 +5093,13 @@ $stmt = null;
                         closeModal('event-create-modal');
                         if (eventCreateForm) eventCreateForm.reset();
                         if (eventsTableBody) {
+                            const firstRow = eventsTableBody.firstElementChild;
+                            if (firstRow && firstRow.tagName === 'TR') {
+                                const firstCell = firstRow.firstElementChild;
+                                if (firstCell && firstCell.colSpan >= 6 && /No events scheduled yet\./i.test(firstCell.textContent || '')) {
+                                    eventsTableBody.removeChild(firstRow);
+                                }
+                            }
                             const tr = document.createElement('tr');
                             const td1=document.createElement('td'); td1.textContent = data.event.title || '';
                             const td2=document.createElement('td'); td2.textContent = data.event.event_date || '';
