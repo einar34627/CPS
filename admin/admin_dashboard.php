@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 session_start();
 require_once '../config/db_connection.php';
@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         } elseif ($action === 'user_list') {
             try {
-                $stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at FROM users ORDER BY created_at DESC LIMIT 500");
+                $stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at, contact, address, date_of_birth FROM users ORDER BY created_at DESC LIMIT 500");
                 $stmt->execute([]);
                 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 echo json_encode(['success'=>true,'users'=>$rows]);
@@ -119,6 +119,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             } catch (Exception $e) {
                 echo json_encode(['success'=>false,'error'=>'Failed to create user']);
+                exit();
+            }
+        } elseif ($action === 'user_delete') {
+            $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+            if ($id <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid ID']); exit(); }
+            try {
+                try { $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, api_key_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (Exception $e) {}
+                $stmt = $pdo->prepare("DELETE FROM api_keys WHERE user_id = ?");
+                $stmt->execute([$id]);
+                $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                $stmt->execute([$id]);
+                echo json_encode(['success'=>true]);
+                exit();
+            } catch (Exception $e) {
+                echo json_encode(['success'=>false,'error'=>'Failed to delete user']);
                 exit();
             }
         } elseif ($action === 'user_set_verified') {
@@ -836,6 +851,43 @@ $stmt = null;
             transform: translateY(-100%);
             white-space: nowrap;
         }
+        .leaflet-control.coords-label {
+            background: rgba(255,255,255,0.9);
+            color: #111827;
+            padding: 6px 10px;
+            border-radius: 8px;
+            box-shadow: 0 0 12px rgba(0,0,0,0.1);
+            font-size: 13px;
+        }
+        .leaflet-tooltip.boundary-label {
+            background: #ef4444;
+            color: #ffffff;
+            border: 1px solid #ef4444;
+            border-radius: 8px;
+            padding: 6px 10px;
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            opacity: 0.9;
+            pointer-events: none;
+            text-transform: none;
+        }
+        .leaflet-tooltip.zone-label {
+            background: rgba(255,255,255,0.95);
+            color: #111827;
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 10px;
+            padding: 8px 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: normal;
+            text-align: center;
+        }
+        .status-green  { background: #3ca34a; color: white; }
+        .status-yellow { background: #f2d21b; color: #000; }
+        .status-orange { background: #f08c2e; color: white; }
+        .status-red    { background: #b1122a; color: white; }
     </style>
 </head>
 <body>
@@ -1750,8 +1802,12 @@ $stmt = null;
                                             <span class="badge badge-inactive">Inactive</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td><input type="date" class="input-text assign-date-input"></td>
-                                    <td><input type="time" class="input-text assign-time-input"></td>
+                                    <td>
+                                        <input type="date" class="input-text assign-date-input" placeholder="mm/dd/yyyy">
+                                    </td>
+                                    <td>
+                                        <input type="time" class="input-text assign-time-input" step="900" placeholder="--:--">
+                                    </td>
                                     <td>
                                         <select class="input-text zone-input">
                                             <option value="">Zone</option>
@@ -2353,8 +2409,23 @@ $stmt = null;
                                             <option value="Emergency">Emergency</option>
                                         </select>
                                     </td>
-                                    <td><input type="date" class="input-text duty-date"></td>
-                                    <td><input type="text" class="input-text duty-time" placeholder="18:00 - 22:00"></td>
+                                    <td>
+                                        <select class="input-text duty-date">
+                                            <?php for ($i = 0; $i < 30; $i++): $d = date('Y-m-d', strtotime("+$i day")); ?>
+                                                <option value="<?php echo $d; ?>"><?php echo date('M d, Y', strtotime($d)); ?></option>
+                                            <?php endfor; ?>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select class="input-text duty-time">
+                                            <option value="06:00 - 10:00">06:00 - 10:00</option>
+                                            <option value="08:00 - 12:00">08:00 - 12:00</option>
+                                            <option value="10:00 - 14:00">10:00 - 14:00</option>
+                                            <option value="14:00 - 18:00">14:00 - 18:00</option>
+                                            <option value="18:00 - 22:00" selected>18:00 - 22:00</option>
+                                            <option value="20:00 - 00:00">20:00 - 00:00</option>
+                                        </select>
+                                    </td>
                                     <td><input type="text" class="input-text duty-zone" value="<?php echo $zone; ?>" placeholder="Zone or Location"></td>
                                     <td class="assign-controls"><button class="primary-button duty-assign-btn">Assign</button></td>
                                 </tr>
@@ -2446,8 +2517,23 @@ $stmt = null;
                                             <option value="Patrol Support">Patrol Support</option>
                                         </select>
                                     </td>
-                                    <td><input type="date" class="input-text task-date"></td>
-                                    <td><input type="text" class="input-text task-time" placeholder="09:00 - 12:00"></td>
+                                    <td>
+                                        <select class="input-text task-date">
+                                            <?php for ($i = 0; $i < 30; $i++): $d = date('Y-m-d', strtotime("+$i day")); ?>
+                                                <option value="<?php echo $d; ?>"><?php echo date('M d, Y', strtotime($d)); ?></option>
+                                            <?php endfor; ?>
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <select class="input-text task-time">
+                                            <option value="06:00 - 10:00">06:00 - 10:00</option>
+                                            <option value="08:00 - 12:00">08:00 - 12:00</option>
+                                            <option value="10:00 - 14:00">10:00 - 14:00</option>
+                                            <option value="12:00 - 16:00">12:00 - 16:00</option>
+                                            <option value="14:00 - 18:00">14:00 - 18:00</option>
+                                            <option value="18:00 - 22:00" selected>18:00 - 22:00</option>
+                                        </select>
+                                    </td>
                                     <td><input type="text" class="input-text task-notes" placeholder="Optional notes"></td>
                                     <td class="assign-controls"><button class="primary-button task-assign-btn">Assign Task</button></td>
                                 </tr>
@@ -2525,7 +2611,7 @@ $stmt = null;
                             <div class="card">
                                 <h2 class="card-title">Map</h2>
                                 <div style="margin-top:8px;">
-                                    <iframe id="gps-map-embed" src="https://maps.google.com/maps?q=14.6970,121.0880&z=16&output=embed" title="Map - Barangay Location" scrolling="no" style="width:100%;min-height:560px;border:0;border-radius:12px;background:transparent;"></iframe>
+                                    <div id="gps-leaflet-map" style="width:100%;height:560px;border:0;border-radius:12px;background:transparent;"></div>
                                 </div>
                             </div>
                         </div>
@@ -2574,13 +2660,15 @@ $stmt = null;
                                         <option value="Needs Assistance">Needs Assistance</option>
                                     </select>
                                 </div>
+                                <input type="hidden" id="latitude-input" value="14.697000">
+                                <input type="hidden" id="longitude-input" value="121.088000">
                                 <div>
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Latitude</label>
-                                    <input type="number" step="0.000001" class="input-text" id="latitude-input" value="14.697000" required>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Date</label>
+                                    <input type="date" class="input-text" id="gps-date-input" placeholder="mm/dd/yyyy">
                                 </div>
                                 <div>
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Longitude</label>
-                                    <input type="number" step="0.000001" class="input-text" id="longitude-input" value="121.088000" required>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Time</label>
+                                    <input type="time" class="input-text" id="gps-time-input" step="900" placeholder="--:--">
                                 </div>
                             </div>
                             <div style="margin-top:12px;display:flex;gap:8px;">
@@ -3035,6 +3123,22 @@ $stmt = null;
                             <button class="secondary-button" id="user-back-btn">Back to Dashboard</button>
                         </div>
                     </div>
+                    <div class="stats-grid" style="margin-top:12px;">
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Verified</span>
+                            </div>
+                            <div class="stat-value" id="user-kpi-verified">0</div>
+                            <div class="stat-info"><span>Approved accounts</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Pending</span>
+                            </div>
+                            <div class="stat-value" id="user-kpi-pending">0</div>
+                            <div class="stat-info"><span>Awaiting approval</span></div>
+                        </div>
+                    </div>
                     <div class="card">
                         <h2 class="card-title">Registered Accounts</h2>
                         <div style="padding:12px;">
@@ -3048,40 +3152,38 @@ $stmt = null;
                             <button type="button" class="secondary-button user-role-filter" data-role="ADMIN">Admin</button>
                             <button type="button" class="secondary-button user-role-filter" data-role="USER">User</button>
                         </div>
+                    </div>
+                    <div class="card" style="margin-top:12px;">
+                        <h2 class="card-title">Pending Accounts</h2>
                         <div style="overflow-x:auto;margin-top:8px;">
-                            <table style="width:100%;border-collapse:collapse;">
+                            <table style="width:100%;border-collapse:collapse;" id="user-pending-table">
                                 <thead>
                                     <tr>
                                         <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Name</th>
                                         <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Username / Email</th>
                                         <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Role</th>
-                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Verified</th>
                                         <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Created</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody id="user-tbody">
-                                    <?php
-                                        $users = [];
-                                        try {
-                                            $stmtU = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at FROM users ORDER BY created_at DESC LIMIT 200");
-                                            $stmtU->execute([]);
-                                            $users = $stmtU->fetchAll(PDO::FETCH_ASSOC);
-                                        } catch (Exception $e) { $users = []; }
-                                    ?>
-                                    <?php if (!empty($users)): ?>
-                                        <?php foreach ($users as $u): ?>
-                                            <tr>
-                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(trim(($u['first_name']??'').' '.($u['middle_name']??'').' '.($u['last_name']??''))); ?></td>
-                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(($u['username']??'').' • '.($u['email']??'')); ?></td>
-                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars($u['role'] ?? 'USER'); ?></td>
-                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo (intval($u['is_verified'] ?? 0) ? '<span class="badge badge-active">Yes</span>' : '<span class="badge badge-pending">No</span>'); ?></td>
-                                                <td style="padding:10px;border-bottom:1px solid #f1f5f9;"><?php echo htmlspecialchars(date('M d, Y g:i A', strtotime($u['created_at'] ?? 'now'))); ?></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <tr><td colspan="5" style="padding:14px;">No users found.</td></tr>
-                                    <?php endif; ?>
-                                </tbody>
+                                <tbody id="user-pending-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-top:12px;">
+                        <h2 class="card-title">Verified Accounts</h2>
+                        <div style="overflow-x:auto;margin-top:8px;">
+                            <table style="width:100%;border-collapse:collapse;" id="user-verified-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Name</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Username / Email</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Role</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Created</th>
+                                        <th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-verified-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -3093,8 +3195,8 @@ $stmt = null;
                 </style>
                 <div id="user-create-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
                     <div style="background:#fff;width:640px;max-width:90%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
-                        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
-                            <div style="font-weight:600;">Create Account</div>
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                            <div style="font-weight:600;" id="user-create-title">Create Account</div>
                             <button class="secondary-button" id="user-create-close">Close</button>
                         </div>
                         <form id="user-create-form" style="padding:16px;">
@@ -4260,7 +4362,8 @@ $stmt = null;
                 const el = document.getElementById(target);
                 if (el) el.style.display = 'block';
                 if (target === 'gps-tracking-section') {
-                    if (typeof loadGPSUnits === 'function') loadGPSUnits();
+                    if (typeof initGPSMap === 'function') initGPSMap();
+                    // if (typeof loadGPSUnits === 'function') loadGPSUnits();
                 }
                 if (target === 'live-viewer-section') {
                     // Face recognition will auto-initialize via MutationObserver
@@ -5293,7 +5396,12 @@ $stmt = null;
                     updateKPI(data.stats || {});
                     renderStatus(data.stats || {});
                     renderUnitList(data.units || []);
-                    if (data.units && data.units.length) updateUnitInfo(data.units[0]);
+                    if (data.units && data.units.length) {
+                        updateUnitInfo(data.units[0]);
+                        updateMapUnitMarkers(data.units);
+                    } else {
+                        updateMapUnitMarkers([]);
+                    }
                 }
             }catch(_){}
         }
@@ -5307,8 +5415,12 @@ $stmt = null;
                     createUnitForm.reset();
                     const latEl = document.getElementById('latitude-input');
                     const lngEl = document.getElementById('longitude-input');
+                        const dateEl = document.getElementById('gps-date-input');
+                        const timeEl = document.getElementById('gps-time-input');
                     if (latEl) latEl.value = '14.697000';
                     if (lngEl) lngEl.value = '121.088000';
+                        if (dateEl) dateEl.value = '';
+                        if (timeEl) timeEl.value = '';
                     if (msg) { msg.textContent = ''; msg.style.color = ''; }
                 });
             }
@@ -5321,6 +5433,8 @@ $stmt = null;
                 const status = document.getElementById('status-input').value;
                 const latitude = parseFloat(document.getElementById('latitude-input').value);
                 const longitude = parseFloat(document.getElementById('longitude-input').value);
+                const dateVal = (document.getElementById('gps-date-input')?.value || '').trim();
+                const timeVal = (document.getElementById('gps-time-input')?.value || '').trim();
                 if (!unitId || !callsign || !assignmentBase || Number.isNaN(latitude) || Number.isNaN(longitude)) return;
                 const payload = {
                     unit_id: unitId,
@@ -5331,7 +5445,8 @@ $stmt = null;
                     status: status,
                     speed: 0,
                     battery: 100,
-                    distance_today: 0
+                    distance_today: 0,
+                    last_ping: (dateVal && timeVal) ? `${dateVal} ${timeVal}` : undefined
                 };
                 try{
                     const res = await fetch('api/gps_save.php', {
@@ -5349,9 +5464,43 @@ $stmt = null;
                         createUnitForm.reset();
                         const latEl = document.getElementById('latitude-input');
                         const lngEl = document.getElementById('longitude-input');
+                        const dateEl = document.getElementById('gps-date-input');
+                        const timeEl = document.getElementById('gps-time-input');
                         if (latEl) latEl.value = '14.697000';
                         if (lngEl) lngEl.value = '121.088000';
-                        loadGPSUnits();
+                        if (dateEl) dateEl.value = '';
+                        if (timeEl) timeEl.value = '';
+                        // loadGPSUnits();
+    
+    function loadGoogleMapsAPI(key){
+        return new Promise(function(resolve, reject){
+            if (window.google && google.maps && google.maps.importLibrary) { resolve(); return; }
+            const s = document.createElement('script');
+            s.src = 'https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&v=beta&libraries=marker';
+            s.async = true;
+            s.defer = true;
+            s.onload = function(){ resolve(); };
+            s.onerror = function(){ reject(new Error('google maps failed')); };
+            document.head.appendChild(s);
+        });
+    }
+    function loadLeafletCDN(){
+        return new Promise(function(resolve, reject){
+            if (window.L && L.map) { resolve(); return; }
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            link.onload = function(){};
+            document.head.appendChild(link);
+            const s = document.createElement('script');
+            s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            s.async = true;
+            s.defer = true;
+            s.onload = function(){ resolve(); };
+            s.onerror = function(){ reject(new Error('leaflet failed')); };
+            document.head.appendChild(s);
+        });
+    }
                     }
                 }catch(_){
                     if (msg) { msg.textContent = 'Network error'; msg.style.color = '#dc2626'; }
@@ -5359,7 +5508,664 @@ $stmt = null;
             });
         }
         
-        loadGPSUnits();
+        // loadGPSUnits();
+        
+        async function initCommonwealthMap(){
+            const el = document.getElementById('gps-leaflet-map');
+            if (!el) return;
+            
+            // Check if map is already initialized
+            if (el._leaflet_id) {
+                return; 
+            }
+
+            if (!window.L || !L.map || !window.turf) {
+                await new Promise((resolve, reject) => {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                    document.head.appendChild(link);
+                    
+                    const s = document.createElement('script');
+                    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                    s.async = true;
+                    s.defer = true;
+                    s.onload = () => {
+                        // Load Turf after Leaflet
+                        const t = document.createElement('script');
+                        t.src = 'https://unpkg.com/@turf/turf/turf.min.js';
+                        t.async = true;
+                        t.defer = true;
+                        t.onload = resolve;
+                        t.onerror = () => reject(new Error('turf failed'));
+                        document.head.appendChild(t);
+                    };
+                    s.onerror = () => reject(new Error('leaflet failed'));
+                    document.head.appendChild(s);
+                });
+            }
+
+            const map = L.map('gps-leaflet-map');
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO', maxZoom: 19 }).addTo(map);
+            
+    const commonwealthCoords = [[121.083089,14.709909],[121.0827319,14.7086933],[121.082621,14.7083025],[121.082477,14.7078641],[121.0823004,14.7073802],[121.0821198,14.7069657],[121.0818147,14.7059143],[121.0815905,14.7051927],[121.0815014,14.7048893],[121.0813675,14.704569],[121.0812002,14.7041845],[121.080837,14.7041825],[121.0795816,14.704164],[121.0777782,14.7041727],[121.0771962,14.7041883],[121.0770465,14.7040385],[121.0767196,14.7038143],[121.0764196,14.7036652],[121.0762954,14.7036316],[121.0756248,14.7034504],[121.0753926,14.703369],[121.0751716,14.7032915],[121.0749029,14.7031676],[121.0746963,14.7030288],[121.0741843,14.7030437],[121.0742259,14.7028376],[121.0742487,14.7027871],[121.0740021,14.7025363],[121.0737081,14.702249],[121.0737537,14.7021699],[121.0734353,14.7017435],[121.0728592,14.7006421],[121.0728041,14.7002749],[121.0727533,14.6999815],[121.0727274,14.699677],[121.0726916,14.6994613],[121.0723715,14.6986078],[121.07174,14.696937],[121.0714422,14.6962263],[121.0709099,14.6948733],[121.0701216,14.6936084],[121.0699625,14.6934091],[121.0696031,14.6928864],[121.075253,14.6933259],[121.0773019,14.6932403],[121.0792747,14.6932472],[121.0807457,14.693322],[121.0860302,14.6932916],[121.0873239,14.6932842],[121.0928632,14.6932789],[121.0928967,14.693922],[121.0929047,14.6949282],[121.0945421,14.6965876],[121.0945856,14.6966323],[121.0939586,14.6971992],[121.0923053,14.6987895],[121.0913908,14.6997168],[121.0910747,14.6999553],[121.0908265,14.700101],[121.0905641,14.7002206],[121.0901125,14.700319],[121.089683,14.7003204],[121.0893063,14.7002606],[121.0888875,14.7001514],[121.0882377,14.6999812],[121.0878347,14.6998756],[121.0877497,14.6999409],[121.0878517,14.7000567],[121.0879446,14.7001603],[121.0880872,14.7003187],[121.0884299,14.7007282],[121.0885158,14.7008171],[121.0886613,14.7008878],[121.0891231,14.7010617],[121.0892205,14.7011234],[121.0892798,14.701238],[121.0893023,14.7013282],[121.0893156,14.7014093],[121.0893191,14.7014306],[121.089328,14.7015229],[121.089351,14.7017641],[121.089355,14.7018396],[121.0893579,14.7019005],[121.0893599,14.7019963],[121.0893598,14.7020426],[121.0893603,14.7021353],[121.089362,14.7022724],[121.0893621,14.7023804],[121.0893489,14.7025146],[121.0893315,14.7025806],[121.0892668,14.7027123],[121.0891752,14.7028696],[121.089117,14.7029694],[121.0890545,14.7030846],[121.0889751,14.7032301],[121.0889519,14.7032712],[121.088917,14.7033333],[121.0888896,14.7033806],[121.088729,14.7036547],[121.0886155,14.7038624],[121.0885581,14.7039989],[121.0885088,14.704127],[121.0884541,14.7043004],[121.0884169,14.7044326],[121.0883021,14.7049157],[121.08822,14.7052547],[121.0881398,14.7056096],[121.0880922,14.7058778],[121.0880932,14.7060099],[121.0881,14.7060914],[121.0881116,14.7061506],[121.0882223,14.7063197],[121.0883329,14.7064466],[121.0887232,14.7068043],[121.0888375,14.7069638],[121.0889178,14.7071079],[121.0889315,14.7071324],[121.0890059,14.7072841],[121.0890453,14.7073643],[121.0890824,14.7074385],[121.0891248,14.707481],[121.089173,14.7075099],[121.0892284,14.7075231],[121.0893762,14.7075281],[121.0895685,14.7075577],[121.0897098,14.7076287],[121.0898469,14.7077221],[121.0899289,14.7077883],[121.0901239,14.7079944],[121.0901656,14.7080543],[121.0902204,14.7081408],[121.0903137,14.7082944],[121.090364,14.7083773],[121.0904348,14.7085047],[121.090456,14.7085531],[121.0906045,14.7088503],[121.0906691,14.7089761],[121.0907357,14.7091702],[121.0907465,14.7092711],[121.0907371,14.7096367],[121.0907377,14.7097015],[121.0907306,14.709957],[121.0907131,14.710531],[121.0907082,14.7106922],[121.0905796,14.7108739],[121.0904498,14.7110573],[121.0901977,14.7114135],[121.090023,14.7117509],[121.0898332,14.7121533],[121.0871119,14.7112189],[121.0869747,14.7113735],[121.0868004,14.7113584],[121.086672,14.7113318],[121.0862659,14.7112029],[121.0859762,14.7110311],[121.0856651,14.7109429],[121.0856973,14.7110339],[121.0849946,14.7105901],[121.0848906,14.7103196],[121.0841055,14.710054],[121.083089,14.709909]];
+    const commonwealthGeoJSON = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": { "name": "Commonwealth" },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [ commonwealthCoords ]
+            }
+        }]
+    };
+            
+            const boundary = L.geoJSON(commonwealthGeoJSON, { style: { color:'#ef4444', opacity:0.08, weight:2, fillColor:'#ffffff', fillOpacity:0.0 } }).addTo(map);
+            boundary.bindPopup("<strong>Commonwealth Avenue Area</strong><br>Quezon City Barangays").openPopup();
+            map.fitBounds(boundary.getBounds());
+
+            // Add Title Control
+            const titleControl = L.control({ position: 'topright' });
+            titleControl.onAdd = function(map) {
+                const div = L.DomUtil.create('div', 'info title');
+                div.style.background = 'white';
+                div.style.padding = '5px 10px';
+                div.style.borderRadius = '5px';
+                div.style.boxShadow = '0 0 15px rgba(0,0,0,0.2)';
+                div.style.fontWeight = 'bold';
+                div.innerHTML = 'Commonwealth Ave. Barangays';
+                return div;
+            };
+            titleControl.addTo(map);
+            
+            // Risk colors
+            const riskColors = [
+                { color: '#3ca34a', name: 'Safe Area' },
+                { color: '#f2d21b', name: 'Low Risk Area' },
+                { color: '#f08c2e', name: 'Medium Risk Area' },
+                { color: '#b1122a', name: 'High Risk Area' }
+            ];
+
+            const bounds = boundary.getBounds();
+            const north = bounds.getNorth();
+            const south = bounds.getSouth();
+            const east = bounds.getEast();
+            const west = bounds.getWest();
+            const commonwealthPoly = turf.polygon([commonwealthCoords]);
+            const slices = 4;
+            const width = east - west;
+            const height = north - south;
+            function cssBg(cls, fallback){
+                try{
+                    const el = document.createElement('span');
+                    el.className = cls;
+                    el.style.display = 'none';
+                    document.body.appendChild(el);
+                    const c = getComputedStyle(el).backgroundColor;
+                    document.body.removeChild(el);
+                    return c && c !== '' ? c : fallback;
+                }catch(e){ return fallback; }
+            }
+            const segColors = [
+                cssBg('status-green',  '#3ca34a'),
+                cssBg('status-yellow', '#f2d21b'),
+                cssBg('status-orange', '#f08c2e'),
+                cssBg('status-red',    '#b1122a')
+            ];
+            const boundaryLine = turf.polygonToLine(commonwealthPoly);
+            const totalLenKm = turf.length(boundaryLine, { units: 'kilometers' });
+            const segLen = totalLenKm / segColors.length;
+            const segPieces = [];
+            for (let i = 0; i < segColors.length; i++) {
+                const start = i * segLen;
+                const end = (i + 1) * segLen;
+                const segment = turf.lineSliceAlong(boundaryLine, start, end, { units: 'kilometers' });
+                if (segment) {
+                    segPieces.push({ segment, color: segColors[i] });
+                    L.geoJSON(segment, { style: { color: segColors[i], weight: 4, opacity: 0.12 } }).addTo(map);
+                }
+            }
+            const bandWidthKm = 1.5;
+            segPieces.forEach(function(p){
+                try{
+                    const buffered = turf.buffer(p.segment, bandWidthKm, { units: 'kilometers' });
+                    const interior = turf.intersect(commonwealthPoly, buffered);
+                    if (interior) {
+                        L.geoJSON(interior, { style: { color: p.color, weight: 0, fillColor: p.color, fillOpacity: 0.5 } }).addTo(map);
+                    }
+                } catch(e) {}
+            });
+            
+            async function ensureLeafletHeat(){
+                if (L && L.heatLayer) return;
+                await new Promise(function(resolve, reject){
+                    const s = document.createElement('script');
+                    s.src = 'https://unpkg.com/leaflet.heat/dist/leaflet-heat.js';
+                    s.async = true;
+                    s.defer = true;
+                    s.onload = resolve;
+                    s.onerror = function(){ reject(new Error('heat failed')); };
+                    document.head.appendChild(s);
+                });
+            }
+            async function addTopographicOverlay(){
+                await ensureLeafletHeat();
+                const center = turf.centerOfMass(commonwealthPoly).geometry.coordinates;
+                const pts = turf.randomPoint(400, { bbox: [west, south, east, north] });
+                const heatData = [];
+                let maxD = 0;
+                [[west, south], [east, north], [west, north], [east, south]].forEach(function(c){
+                    const d = turf.distance(center, c, { units: 'kilometers' });
+                    if (d > maxD) maxD = d;
+                });
+                pts.features.forEach(function(f){
+                    const c = f.geometry.coordinates;
+                    if (turf.booleanPointInPolygon(c, commonwealthPoly)) {
+                        const d = turf.distance(center, c, { units: 'kilometers' });
+                        const w = 1 - Math.min(1, d / (maxD || 1));
+                        heatData.push([c[1], c[0], Math.max(0.2, w)]);
+                    }
+                });
+                const gradient = { 0.0:'#2563eb', 0.3:'#10b981', 0.6:'#facc15', 0.8:'#fb923c', 1.0:'#EC4899' };
+                L.heatLayer(heatData, { radius: 45, blur: 25, gradient: gradient }).addTo(map);
+            }
+            // heat overlay disabled
+            
+            const pinLayer = L.layerGroup().addTo(map);
+            function nearestColor(lng, lat){
+                let best = 0;
+                let bd = Infinity;
+                segPieces.forEach(function(p, idx){
+                    try {
+                        const d = turf.pointToLineDistance([lng, lat], p.segment, { units: 'kilometers' });
+                        if (d < bd) { bd = d; best = idx; }
+                    } catch(e) {}
+                });
+                return segColors[best] || '#2563eb';
+            }
+            window.getZoneColor = function(lng, lat){
+                try { return nearestColor(lng, lat); } catch(e){ return '#2563eb'; }
+            };
+            const roadsLayer = L.layerGroup().addTo(map);
+            const streetlineLayer = L.layerGroup().addTo(map);
+            let roadsLines = [];
+            function createResidentIcon(c){
+                const html = '<div style="width:24px;height:24px;border-radius:50%;background:'+c+';display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.3)"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4" fill="#ffffff"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/></svg></div>';
+                return L.divIcon({ html: html, iconSize: [24,24], iconAnchor: [12,12], className: '' });
+            }
+            async function loadRoadNetwork(){
+                if (roadsLines.length) return;
+                const q = `[out:json][timeout:25];way[highway](${south},${west},${north},${east});out geom;`;
+                const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q);
+                try{
+                    const r = await fetch(url);
+                    const j = await r.json();
+                    const els = Array.isArray(j.elements) ? j.elements : [];
+                    els.forEach(function(el){
+                        const g = el.geometry;
+                        if (Array.isArray(g) && g.length >= 2) {
+                            const coords = g.map(function(pt){ return [pt.lat, pt.lon]; });
+                            const nm = (el.tags && el.tags.name) ? String(el.tags.name) : undefined;
+                            const roadLine = turf.lineString(coords.map(function(c){ return [c[1], c[0]]; }), nm ? { name: nm } : undefined);
+                            const boundaryLine = turf.polygonToLine(commonwealthPoly);
+                            const split = turf.lineSplit(roadLine, boundaryLine);
+                            let added = false;
+                            if (split && Array.isArray(split.features) && split.features.length) {
+                                split.features.forEach(function(seg){
+                                    const segCoords = seg.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+                                    const mid = turf.midpoint(seg.geometry.coordinates[0], seg.geometry.coordinates[seg.geometry.coordinates.length - 1]);
+                                    if (turf.booleanPointInPolygon(mid, commonwealthPoly)) {
+                                        const cc = mid.geometry.coordinates;
+                                        const col = nearestColor(cc[0], cc[1]);
+                                        L.polyline(segCoords, { color: col, weight:1.8, opacity:0.75 }).addTo(roadsLayer);
+                                        if (nm) { seg.properties = Object.assign({}, seg.properties, { name: nm }); }
+                                        roadsLines.push(seg);
+                                        added = true;
+                                    }
+                                });
+                            }
+                            if (!added) {
+                                const mid = turf.midpoint(roadLine.geometry.coordinates[0], roadLine.geometry.coordinates[roadLine.geometry.coordinates.length - 1]);
+                                if (turf.booleanPointInPolygon(mid, commonwealthPoly)) {
+                                    const segCoords = roadLine.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+                                    const cc = mid.geometry.coordinates;
+                                    const col = nearestColor(cc[0], cc[1]);
+                                    L.polyline(segCoords, { color: col, weight:1.8, opacity:0.75 }).addTo(roadsLayer);
+                                    roadsLines.push(roadLine);
+                                }
+                            }
+                        }
+                    });
+                }catch(e){}
+            }
+            async function addStreetline(lng, lat){
+                await loadRoadNetwork();
+                if (!roadsLines.length) return;
+                let best = null;
+                let bd = Infinity;
+                roadsLines.forEach(function(ls){
+                    try{
+                        const p = turf.nearestPointOnLine(ls, [lng, lat], { units: 'kilometers' });
+                        if (typeof p.properties.dist === 'number' && p.properties.dist < bd) {
+                            bd = p.properties.dist;
+                            best = p;
+                        }
+                    }catch(e){}
+                });
+                if (best && best.geometry && Array.isArray(best.geometry.coordinates)) {
+                    const nn = best.geometry.coordinates;
+                    const a = [lat, lng];
+                    const b = [nn[1], nn[0]];
+                    streetlineLayer.clearLayers();
+                    L.polyline([a, b], { color:'#0ea5e9', weight:4, opacity:0.95, dashArray:'6,6' }).addTo(streetlineLayer);
+                }
+            }
+            map.on('click', async function(e){
+                const pt = [e.latlng.lng, e.latlng.lat];
+                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
+                    const col = nearestColor(e.latlng.lng, e.latlng.lat);
+                    const m = L.marker(e.latlng, { icon: createResidentIcon(col) }).addTo(pinLayer);
+                    m.bindTooltip('Lat: ' + e.latlng.lat.toFixed(6) + ', Lon: ' + e.latlng.lng.toFixed(6), { permanent: false, direction: 'top' });
+                    await addStreetline(e.latlng.lng, e.latlng.lat);
+                }
+            });
+            function addPin(lng, lat, label){
+                const pt = [lng, lat];
+                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
+                    const col = nearestColor(lng, lat);
+                    const m = L.marker([lat, lng], { icon: createResidentIcon(col) }).addTo(pinLayer);
+                    if (label) m.bindTooltip(label, { permanent: true, direction: 'top' });
+                }
+            }
+            function addResident(lng, lat, label){
+                addPin(lng, lat, label);
+            }
+            window.addResident = addResident;
+            async function addResidentOnStreet(streetName, label){
+                await loadRoadNetwork();
+                const n = String(streetName || '').toLowerCase();
+                let target = null;
+                roadsLines.forEach(function(ls){
+                    const nm = String(ls.properties && ls.properties.name || '').toLowerCase();
+                    if (!target && nm && (nm.includes(n) || n.includes(nm))) {
+                        target = ls;
+                    }
+                });
+                if (target && target.geometry && Array.isArray(target.geometry.coordinates)) {
+                    const coords = target.geometry.coordinates;
+                    const mid = turf.midpoint(coords[0], coords[coords.length - 1]).geometry.coordinates;
+                    addPin(mid[0], mid[1], label);
+                    await addStreetline(mid[0], mid[1]);
+                }
+            }
+            window.addResidentOnStreet = addResidentOnStreet;
+            function createPinpoint(lat, lng, title) {
+                const pt = [lng, lat];
+                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
+                    const col = nearestColor(lng, lat);
+                    const m = L.marker([lat, lng], { icon: createResidentIcon(col) }).addTo(pinLayer);
+                    if (title) m.bindTooltip(title, { permanent: true, direction: 'top', className: 'unit-tooltip' });
+                    return m;
+                }
+            }
+            window.createPinpoint = createPinpoint;
+
+            function addRandomUnits(count){
+                var n = Number(count) || 0;
+                if (n <= 0) return;
+                var pts = turf.randomPoint(n * 3, { bbox: [west, south, east, north] });
+                var placed = 0;
+                for (var i = 0; i < pts.features.length && placed < n; i++) {
+                    var c = pts.features[i].geometry.coordinates;
+                    if (turf.booleanPointInPolygon(c, commonwealthPoly)) {
+                        createPinpoint(c[1], c[0], 'Unit ' + (placed + 1));
+                        placed++;
+                    }
+                }
+            }
+            window.addRandomUnits = addRandomUnits;
+            // Custom split to match desired layout:
+            // - Yellow: Bottom strip
+            // - Green: Left side (West of splitX, above Yellow)
+            // - Orange: Right side (East of splitX, above Yellow, below splitY_Pink)
+            // - Pink: Top Right (East of splitX, above splitY_Pink)
+            const bottomRatio = 0.22;
+            const splitRatioX = 0.48;
+            const pinkSplitRatioY = 0.58; // Pink starts above this ratio
+
+            const splitX = west + width * splitRatioX;
+            const splitY = south + height * bottomRatio;
+            const splitY_Pink = south + height * pinkSplitRatioY;
+
+            // 1. Bottom Band (Yellow)
+            const bottomBand = turf.polygon([[ [west, south], [east, south], [east, splitY], [west, splitY], [west, south] ]]);
+            
+            // 2. Upper Left (Green)
+            const upperLeft = turf.polygon([[ [west, splitY], [splitX, splitY], [splitX, north], [west, north], [west, splitY] ]]);
+
+            // 3. Middle Right (Orange) - Between Yellow and Pink
+            const midRight = turf.polygon([[ [splitX, splitY], [east, splitY], [east, splitY_Pink], [splitX, splitY_Pink], [splitX, splitY] ]]);
+
+            // 4. Top Right (Pink) - Above Orange
+            const topRight = turf.polygon([[ [splitX, splitY_Pink], [east, splitY_Pink], [east, north], [splitX, north], [splitX, splitY_Pink] ]]);
+
+            [
+                { poly: bottomBand,  color: segColors[1], name: 'Yellow Zone' },
+                { poly: upperLeft,   color: segColors[0], name: 'Green Zone' },
+                { poly: midRight,    color: segColors[2], name: 'Orange Zone' },
+                { poly: topRight,    color: segColors[3], name: 'Red Zone' }
+            ].forEach(function(item){
+                const clip = turf.intersect(commonwealthPoly, item.poly);
+                if (clip) {
+                    L.geoJSON(clip, { style: { color: item.color, weight: 0, fillColor: item.color, fillOpacity: 0.90 } }).addTo(map);
+                    const Center = turf.centroid(clip).geometry.coordinates;
+                    L.marker([Center[1], Center[0]], { icon: L.divIcon({
+                        html: '<div style="padding:4px 8px;border-radius:8px;background:'+item.color+';color:#fff;font-weight:600;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,0.25);opacity:0.95">'+item.name+'</div>',
+                        iconSize: [0,0],
+                        className: ''
+                    }) }).addTo(map);
+                }
+            });
+            
+            // Visible divide-by-divide lines (aligned to custom splits)
+            const hLine1 = turf.lineString([[west, splitY], [east, splitY]]); // Top of Yellow
+            const hLine2 = turf.lineString([[splitX, splitY_Pink], [east, splitY_Pink]]); // Bottom of Pink
+            const vLine = turf.lineString([[splitX, splitY], [splitX, north]]); // Right of Green
+
+            const polyLine = turf.polygonToLine(commonwealthPoly);
+            [hLine1, hLine2, vLine].forEach(function(line){
+                const split = turf.lineSplit(line, polyLine);
+                if (split && split.features) {
+                    split.features.forEach(function(seg){
+                         const coords = seg.geometry.coordinates;
+                         const mid = turf.midpoint(coords[0], coords[coords.length-1]);
+                         if (turf.booleanPointInPolygon(mid, commonwealthPoly)) {
+                             L.geoJSON(seg, { style: { color: '#111827', weight: 2, opacity: 0.9, dashArray: '6 3' } }).addTo(map);
+                         }
+                    });
+                } else {
+                     // If line is fully inside (unlikely for bounding box lines but possible)
+                     const mid = turf.midpoint(line.geometry.coordinates[0], line.geometry.coordinates[line.geometry.coordinates.length-1]);
+                     if (turf.booleanPointInPolygon(mid, commonwealthPoly)) {
+                         L.geoJSON(line, { style: { color: '#111827', weight: 2, opacity: 0.9, dashArray: '6 3' } }).addTo(map);
+                     }
+                }
+            });
+            async function highlightRoadByName(name, color){
+                await loadRoadNetwork();
+                const target = String(name || '').toLowerCase();
+                roadsLines.forEach(function(ls){
+                    const nm = ls.properties && typeof ls.properties.name === 'string' ? ls.properties.name.toLowerCase() : '';
+                    if (nm && nm.indexOf(target) !== -1) {
+                        const coords = ls.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+                        L.polyline(coords, { color: color || '#f97316', weight: 5, opacity: 0.95 }).addTo(streetlineLayer);
+                    }
+                });
+            }
+            
+            // Add Legend
+            const legend = L.control({ position: 'bottomright' });
+            legend.onAdd = function (map) {
+                const div = L.DomUtil.create('div', 'info legend');
+                div.style.background = 'white';
+                div.style.padding = '10px';
+                div.style.borderRadius = '5px';
+                div.style.boxShadow = '0 0 15px rgba(0,0,0,0.2)';
+                let labels = ['<strong>Risk Levels</strong>'];
+                for (let i = 0; i < riskColors.length; i++) {
+                    labels.push(
+                        '<i style="background:' + riskColors[i].color + ';width:18px;height:18px;float:left;margin-right:8px;opacity:0.9"></i> ' +
+                        riskColors[i].name
+                    );
+                }
+                div.innerHTML = labels.join('<br>');
+                return div;
+            };
+            legend.addTo(map);
+
+            L.marker([14.6968, 121.0875]).addTo(map)
+                .bindPopup("Commonwealth Ave");
+
+            L.marker([14.705528, 121.072965]).addTo(map)
+                .bindPopup("<strong>Target Location</strong><br>14° 42' 19.9008\" N, 121° 04' 22.674\" E");
+            
+            addResidentOnStreet('Abot Street', 'Unit Alpha');
+            
+            // Automatic pinpoint per area (GPS tracking simulation)
+            function populateZonesWithUnits(unitsPerZone){
+                const zones = [
+                    { name: 'Safe Zone', poly: upperLeft },    // Green
+                    { name: 'Low Risk', poly: bottomBand },    // Yellow
+                    { name: 'Medium Risk', poly: midRight },   // Orange
+                    { name: 'High Risk', poly: topRight }      // Pink
+                ];
+                
+                zones.forEach(function(zone){
+                    const bbox = turf.bbox(zone.poly);
+                    let placed = 0;
+                    let attempts = 0;
+                    // Try to place 'unitsPerZone' units in this zone
+                    while(placed < unitsPerZone && attempts < 200){
+                        const pts = turf.randomPoint(1, { bbox: bbox });
+                        const pt = pts.features[0];
+                        if (turf.booleanPointInPolygon(pt, zone.poly)) {
+                            createPinpoint(pt.geometry.coordinates[1], pt.geometry.coordinates[0], zone.name + ' Unit ' + (placed+1));
+                            placed++;
+                        }
+                        attempts++;
+                    }
+                });
+            }
+            populateZonesWithUnits(5); // 5 units per zone
+
+            // Specific pinpoints for key locations
+            createPinpoint(14.7000, 121.0800, "Patrol Unit A");
+            createPinpoint(14.7020, 121.0820, "Patrol Unit B");
+            createPinpoint(14.7040, 121.0850, "Patrol Unit C");
+            await highlightRoadByName('Commonwealth Avenue', '#f97316');
+        }
+
+        var gpsMapReady = false;
+        var gpsMapCtx = { type: null, map: null, markers: [] };
+        async function initGPSMap(){
+            // Always init to ensure map is shown even if called multiple times
+            await initCommonwealthMap();
+            gpsMapReady = true;
+            if (typeof loadGPSUnits === 'function') {
+                loadGPSUnits();
+            }
+        }
+        function loadLeafletCDN(){
+            return new Promise(function(resolve, reject){
+                if (window.L && L.map) { resolve(); return; }
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                document.head.appendChild(link);
+                const s = document.createElement('script');
+                s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                s.async = true;
+                s.defer = true;
+                s.onload = function(){ resolve(); };
+                s.onerror = function(){ reject(new Error('leaflet failed')); };
+                document.head.appendChild(s);
+            });
+        }
+        function initLeafletColoredMap(containerId){
+            const el = document.getElementById(containerId);
+            if (!el || typeof L === 'undefined') return;
+            const map = L.map(containerId);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO', maxZoom: 19 }).addTo(map);
+            const zones = [
+                { area:'R2 Medium Density', coords:[[121.0835,14.7082],[121.0850,14.7085],[121.0852,14.7075],[121.0838,14.7072],[121.0835,14.7082]] },
+                { area:'C1/C2 Commercial', coords:[[121.0852,14.7075],[121.0868,14.7079],[121.0869,14.7067],[121.0853,14.7064],[121.0852,14.7075]] },
+                { area:'Institutional', coords:[[121.0832,14.7068],[121.0848,14.7070],[121.0849,14.7058],[121.0833,14.7056],[121.0832,14.7068]] },
+                { area:'Residential Housing', coords:[[121.0860,14.7058],[121.0876,14.7060],[121.0877,14.7048],[121.0861,14.7046],[121.0860,14.7058]] },
+                { area:'R3 High Density', coords:[[121.0845,14.7049],[121.0862,14.7052],[121.0863,14.7042],[121.0846,14.7040],[121.0845,14.7049]] }
+            ];
+            const palette = { "R2 Medium Density":"#000000","R3 High Density":"#000000","C1/C2 Commercial":"#000000","Institutional":"#000000","Residential Housing":"#000000","Special Urban Dev't":"#000000" };
+            const b = new L.LatLngBounds();
+            zones.forEach(function(z){
+                const poly = L.polygon(z.coords.map(function(c){ return [c[1], c[0]]; }), { color: '#111111', weight: 1, fillColor: '#ffffff', fillOpacity: 0 }).addTo(map);
+                poly.getLatLngs()[0].forEach(function(p){ b.extend(p); });
+            });
+            map.fitBounds(b);
+            setTimeout(function(){ map.invalidateSize(); }, 0);
+            if (containerId === 'gps-leaflet-map') { gpsMapCtx = { type: 'leaflet', map: map, markers: [] }; }
+        }
+        function loadGoogleMapsAPI(key){
+            return new Promise(function(resolve, reject){
+                if (window.google && google.maps && google.maps.importLibrary) { resolve(); return; }
+                const s = document.createElement('script');
+                s.src = 'https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&v=beta&libraries=marker';
+                s.async = true;
+                s.defer = true;
+                s.onload = function(){ resolve(); };
+                s.onerror = function(){ reject(new Error('google maps failed')); };
+                document.head.appendChild(s);
+            });
+        }
+        async function initGoogleColoredMap(apiKey, containerId){
+            await loadGoogleMapsAPI(apiKey);
+            const libs = await Promise.all([ google.maps.importLibrary('maps'), google.maps.importLibrary('marker') ]);
+            const MapCtor = libs[0].Map;
+            const el = document.getElementById(containerId);
+            if (!el) return;
+            const map = new MapCtor(el, { center: { lat: 14.703, lng: 121.088 }, zoom: 15, mapTypeId: 'roadmap' });
+            const palette = { "Zone 01":"#000000","Zone 02":"#000000","Zone 03":"#000000","Zone 04":"#000000","Zone 05":"#000000" };
+            const zones = [
+                { area:'Zone 01', coords:[[121.0835,14.7082],[121.0850,14.7085],[121.0852,14.7075],[121.0838,14.7072],[121.0835,14.7082]] },
+                { area:'Zone 02', coords:[[121.0852,14.7075],[121.0868,14.7079],[121.0869,14.7067],[121.0853,14.7064],[121.0852,14.7075]] },
+                { area:'Zone 03', coords:[[121.0832,14.7068],[121.0848,14.7070],[121.0849,14.7058],[121.0833,14.7056],[121.0832,14.7068]] },
+                { area:'Zone 04', coords:[[121.0860,14.7058],[121.0876,14.7060],[121.0877,14.7048],[121.0861,14.7046],[121.0860,14.7058]] },
+                { area:'Zone 05', coords:[[121.0845,14.7049],[121.0862,14.7052],[121.0863,14.7042],[121.0846,14.7040],[121.0845,14.7049]] }
+            ];
+            const { AdvancedMarkerElement } = google.maps.marker;
+            const bounds = new google.maps.LatLngBounds();
+            zones.forEach(function(z){
+                const path = z.coords.map(function(c){ return { lat:c[1], lng:c[0] }; });
+                const poly = new google.maps.Polygon({ paths: path, strokeColor: '#111111', strokeOpacity: 1, strokeWeight: 1, fillColor: '#ffffff', fillOpacity: 0 });
+                poly.setMap(map);
+                path.forEach(function(p){ bounds.extend(p); });
+            });
+            map.fitBounds(bounds);
+            function makeDot(color){
+                const d = document.createElement('div');
+                d.style.width = '18px';
+                d.style.height = '18px';
+                d.style.borderRadius = '50%';
+                d.style.background = color;
+                d.style.border = '2px solid #fff';
+                d.style.boxShadow = '0 0 0 2px '+color;
+                return d;
+            }
+            [
+                { name:'Commonwealth Market', lat:14.7008, lng:121.0870, color:'#3b82f6', area:'Zone 03' },
+                { name:'Litex Market', lat:14.7050, lng:121.0860, color:'#f59e0b', area:'Zone 02' },
+                { name:'San Roque Covered Court', lat:14.7033, lng:121.0875, color:'#10b981', area:'Zone 04' }
+            ].forEach(function(p){
+                const marker = new AdvancedMarkerElement({ map, position: { lat:p.lat, lng:p.lng }, content: makeDot(p.color), title: p.name });
+                marker.addListener('click', function(){
+                    const z = zones.find(function(z){ return z.area === p.area; });
+                    if (!z) return;
+                    const b = new google.maps.LatLngBounds();
+                    z.coords.forEach(function(c){ b.extend(new google.maps.LatLng(c[1], c[0])); });
+                    map.fitBounds(b);
+                });
+            });
+            if (containerId === 'gps-leaflet-map') { gpsMapCtx = { type: 'google', map: map, markers: [], AdvancedMarkerElement: AdvancedMarkerElement }; }
+        }
+        
+        function getStatusColor(s){
+            return '#374151';
+        }
+        function statusColor(s){
+            const v = String(s || '').toLowerCase();
+            if (v.includes('assist')) return '#f44336';
+            if (v.includes('respond')) return '#ff9800';
+            if (v.includes('patrol')) return '#ffeb3b';
+            if (v.includes('station')) return '#4caf50';
+            return '#4caf50';
+        }
+        function personIconHTML(bg){
+            const outer = '#2563eb';
+            const ring = bg || '#2563eb';
+            return "<div style='width:28px;height:28px;border-radius:50%;background:"+outer+";display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+ring+"'><svg width='16' height='16' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='8' r='4' fill='#ffc107'/><path d='M4 20c0-4 4-6 8-6s8 2 8 6' fill='none' stroke='#ffc107' stroke-width='2' stroke-linecap='round'/></svg></div>";
+        }
+        function ensureStatusLegend(){
+            if (!gpsMapCtx || !gpsMapCtx.map) return;
+            if (gpsMapCtx.type === 'leaflet') {
+                if (!gpsMapCtx.legend) {
+                    const legend = L.control({ position: 'bottomright' });
+                    legend.onAdd = function () {
+                        const div = L.DomUtil.create('div', 'info legend');
+                        div.style.background = 'white';
+                        div.style.padding = '10px';
+                        div.style.borderRadius = '5px';
+                        div.style.boxShadow = '0 0 15px rgba(0,0,0,0.2)';
+                        const items = [
+                            { name:'Needs Assistance', color:'#f44336' },
+                            { name:'Responding', color:'#ff9800' },
+                            { name:'On Patrol', color:'#ffeb3b' },
+                            { name:'Stationary', color:'#4caf50' }
+                        ];
+                        let labels = ['<strong>GPS Status</strong>'];
+                        for (let i = 0; i < items.length; i++) {
+                            labels.push('<i style="background:' + items[i].color + ';width:18px;height:18px;float:left;margin-right:8px;opacity:0.7"></i> ' + items[i].name);
+                        }
+                        div.innerHTML = labels.join('<br>');
+                        return div;
+                    };
+                    legend.addTo(gpsMapCtx.map);
+                    gpsMapCtx.legend = legend;
+                }
+            }
+        }
+        function updateMapUnitMarkers(units){
+            if (!gpsMapCtx || !gpsMapCtx.map) return;
+            const items = Array.isArray(units) ? units : [];
+            if (gpsMapCtx.markers && gpsMapCtx.markers.length){
+                gpsMapCtx.markers.forEach(function(m){
+                    if (gpsMapCtx.type === 'leaflet' && m && typeof m.remove === 'function') { m.remove(); }
+                    else if (gpsMapCtx.type === 'google' && m && typeof m.setMap === 'function') { m.setMap(null); }
+                    else if (gpsMapCtx.type === 'google' && m && 'map' in m) { m.map = null; }
+                });
+                gpsMapCtx.markers = [];
+            }
+            ensureStatusLegend();
+            items.forEach(function(u){
+                if (gpsMapCtx.type === 'leaflet') {
+                    if (typeof L === 'undefined') return;
+                    var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
+                    var html = personIconHTML(zoneColor);
+                    var icon = L.divIcon({ className:'poi-icon', html: html, iconSize:[28,28], iconAnchor:[14,14] });
+                    if (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
+                        var m = L.marker([Number(u.lat), Number(u.lng)], { icon: icon, title: u.callsign || String(u.id || '') }).addTo(gpsMapCtx.map);
+                        if (u.callsign) { m.bindTooltip(u.callsign, { permanent:false, direction:'top' }); }
+                        m.on('click', function(){
+                            updateUnitInfo(u);
+                            gpsMapCtx.map.setView([Number(u.lat), Number(u.lng)], Math.max(gpsMapCtx.map.getZoom(), 17));
+                        });
+                        gpsMapCtx.markers.push(m);
+                    }
+                } else if (gpsMapCtx.type === 'google') {
+                    if (gpsMapCtx.AdvancedMarkerElement && typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
+                        var container = document.createElement('div');
+                        var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
+                        container.innerHTML = personIconHTML(zoneColor);
+                        var marker = new gpsMapCtx.AdvancedMarkerElement({ map: gpsMapCtx.map, position: { lat: Number(u.lat), lng: Number(u.lng) }, content: container, title: u.callsign || String(u.id || '') });
+                        marker.addListener('click', function(){
+                            updateUnitInfo(u);
+                            gpsMapCtx.map.panTo({ lat: Number(u.lat), lng: Number(u.lng) });
+                            var z = gpsMapCtx.map.getZoom();
+                            if (z < 17) gpsMapCtx.map.setZoom(17);
+                        });
+                        gpsMapCtx.markers.push(marker);
+                    }
+                }
+            });
+        }
         
         const adminMsgContactSearch = document.getElementById('admin-msg-contact-search');
         const adminMsgContactList = document.getElementById('admin-msg-contact-list');
@@ -5498,13 +6304,21 @@ $stmt = null;
         }
         const userSearch = document.getElementById('user-search');
         const userTbody = document.getElementById('user-tbody');
+        const userPendingTbody = document.getElementById('user-pending-tbody');
+        const userVerifiedTbody = document.getElementById('user-verified-tbody');
+        const userKpiVerified = document.getElementById('user-kpi-verified');
+        const userKpiPending = document.getElementById('user-kpi-pending');
         const userRoleButtons = document.querySelectorAll('#user-role-filters .user-role-filter');
         let userData = [];
         let selectedRoleCategory = 'ALL';
         function renderUsers(){
-            if (!userTbody) return;
+            renderUserLists();
+        }
+        function renderUserLists(){
+            const pendingBody = userPendingTbody;
+            const verifiedBody = userVerifiedTbody;
+            if (!pendingBody || !verifiedBody) return;
             const q = (userSearch && userSearch.value || '').toLowerCase();
-            userTbody.innerHTML = '';
             const arr = userData.filter(u=>{
                 const name = String(((u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||''))).toLowerCase();
                 const email = String(u.email||'').toLowerCase();
@@ -5512,28 +6326,55 @@ $stmt = null;
                 const roleMatch = selectedRoleCategory === 'ALL' ? true : (String(u.role||'').toUpperCase() === selectedRoleCategory);
                 return roleMatch && (!q || name.includes(q) || email.includes(q) || role.includes(q));
             });
-            if (!arr.length){
+            const pendingArr = arr.filter(u=>parseInt(u.is_verified||0)===0);
+            const verifiedArr = arr.filter(u=>parseInt(u.is_verified||0)===1);
+            if (userKpiVerified) userKpiVerified.textContent = String(verifiedArr.length);
+            if (userKpiPending) userKpiPending.textContent = String(pendingArr.length);
+            function tdWith(text){ const td=document.createElement('td'); td.style.padding='10px'; td.style.borderBottom='1px solid #f1f5f9'; td.innerHTML=text; return td; }
+            pendingBody.innerHTML = '';
+            verifiedBody.innerHTML = '';
+            if (!pendingArr.length){
                 const tr = document.createElement('tr');
                 const td = document.createElement('td');
                 td.colSpan = 5;
                 td.style.padding = '14px';
-                td.textContent = 'No users found.';
+                td.textContent = 'No pending accounts.';
                 tr.appendChild(td);
-                userTbody.appendChild(tr);
-                return;
+                pendingBody.appendChild(tr);
+            } else {
+                pendingArr.forEach(u=>{
+                    const tr = document.createElement('tr');
+                    const name = (u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||'');
+                    tr.appendChild(tdWith(escapeHtml(name)));
+                    tr.appendChild(tdWith(escapeHtml(String(u.username||'')+' • '+String(u.email||''))));
+                    tr.appendChild(tdWith(escapeHtml(u.role||'USER')));
+                    const created = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+                    tr.appendChild(tdWith(escapeHtml(created)));
+                    tr.appendChild(tdWith(`<div class="assign-controls"><button class="primary-button user-view-btn" data-id="${u.id}">View</button><button class="primary-button user-verify-btn" data-id="${u.id}">Verify</button><button class="secondary-button user-delete-btn" data-id="${u.id}">Delete</button></div>`));
+                    pendingBody.appendChild(tr);
+                });
             }
-            arr.forEach(u=>{
+            if (!verifiedArr.length){
                 const tr = document.createElement('tr');
-                function tdWith(text){ const td=document.createElement('td'); td.style.padding='10px'; td.style.borderBottom='1px solid #f1f5f9'; td.innerHTML=text; return td; }
-                const name = (u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||'');
-                tr.appendChild(tdWith(escapeHtml(name)));
-                tr.appendChild(tdWith(escapeHtml(String(u.username||'')+' • '+String(u.email||''))));
-                tr.appendChild(tdWith(escapeHtml(u.role||'USER')));
-                tr.appendChild(tdWith((parseInt(u.is_verified||0)?'<span class="badge badge-active">Yes</span>':'<span class="badge badge-pending">No</span>')));
-                const created = u.created_at ? new Date(u.created_at).toLocaleString() : '';
-                tr.appendChild(tdWith(escapeHtml(created)));
-                userTbody.appendChild(tr);
-            });
+                const td = document.createElement('td');
+                td.colSpan = 5;
+                td.style.padding = '14px';
+                td.textContent = 'No verified accounts.';
+                tr.appendChild(td);
+                verifiedBody.appendChild(tr);
+            } else {
+                verifiedArr.forEach(u=>{
+                    const tr = document.createElement('tr');
+                    const name = (u.first_name||'')+' '+(u.middle_name||'')+' '+(u.last_name||'');
+                    tr.appendChild(tdWith(escapeHtml(name)));
+                    tr.appendChild(tdWith(escapeHtml(String(u.username||'')+' • '+String(u.email||''))));
+                    tr.appendChild(tdWith(escapeHtml(u.role||'USER')));
+                    const created = u.created_at ? new Date(u.created_at).toLocaleString() : '';
+                    tr.appendChild(tdWith(escapeHtml(created)));
+                    tr.appendChild(tdWith(`<div class="assign-controls"><button class="primary-button user-view-btn" data-id="${u.id}">View</button><button class="secondary-button user-delete-btn" data-id="${u.id}">Delete</button></div>`));
+                    verifiedBody.appendChild(tr);
+                });
+            }
         }
         function escapeHtml(s){ const div=document.createElement('div'); div.textContent=String(s||''); return div.innerHTML; }
         async function loadUsers(){
@@ -5566,7 +6407,22 @@ $stmt = null;
         const userCreateCancel = document.getElementById('user-create-cancel');
         const userCreateForm = document.getElementById('user-create-form');
         const userCreateStatus = document.getElementById('user-create-status');
-        function openUserCreate(){ if (userCreateModal) userCreateModal.style.display = 'flex'; }
+        const userCreateTitle = document.getElementById('user-create-title');
+        function setCreateMode(){
+            if (userCreateTitle) userCreateTitle.textContent = 'Create Account';
+            if (userCreateForm){
+                userCreateForm.reset();
+                Array.from(userCreateForm.querySelectorAll('input, select, textarea')).forEach(el=>{ el.disabled = false; });
+                const pwd = userCreateForm.querySelector('input[name="password"]');
+                if (pwd){ pwd.disabled = false; pwd.placeholder = 'Password'; }
+                const submitBtn = document.getElementById('user-create-submit');
+                const cancelBtn = document.getElementById('user-create-cancel');
+                if (submitBtn) submitBtn.style.display = '';
+                if (cancelBtn) cancelBtn.style.display = '';
+            }
+            if (userCreateStatus) userCreateStatus.textContent = '';
+        }
+        function openUserCreate(){ setCreateMode(); if (userCreateModal) userCreateModal.style.display = 'flex'; }
         function closeUserCreate(){ if (userCreateModal) userCreateModal.style.display = 'none'; if (userCreateStatus) userCreateStatus.textContent=''; }
         if (userCreateOpenBtn) userCreateOpenBtn.addEventListener('click', openUserCreate);
         if (userCreateClose) userCreateClose.addEventListener('click', closeUserCreate);
@@ -5594,6 +6450,89 @@ $stmt = null;
             });
         }
         loadUsers();
+
+        function openUserView(id){
+            const user = userData.find(u=>String(u.id)===String(id));
+            if (!user) { return; }
+            if (userCreateTitle) userCreateTitle.textContent = 'View Account';
+            if (userCreateForm){
+                const mapVal = (name, val)=>{ const el = userCreateForm.querySelector(`[name="${name}"]`); if (el) el.value = val || ''; };
+                mapVal('first_name', user.first_name || '');
+                mapVal('middle_name', user.middle_name || '');
+                mapVal('last_name', user.last_name || '');
+                mapVal('username', user.username || '');
+                mapVal('email', user.email || '');
+                mapVal('contact', user.contact || '');
+                mapVal('date_of_birth', user.date_of_birth || '');
+                const roleSel = userCreateForm.querySelector('select[name="role"]');
+                if (roleSel){
+                    const roleVal = String(user.role || 'TANOD').toUpperCase();
+                    const exists = Array.from(roleSel.options).some(o=>String(o.value).toUpperCase()===roleVal);
+                    if (!exists){
+                        const opt = document.createElement('option');
+                        opt.value = roleVal;
+                        opt.textContent = roleVal.charAt(0)+roleVal.slice(1).toLowerCase();
+                        roleSel.insertBefore(opt, roleSel.firstChild);
+                    }
+                    roleSel.value = roleVal;
+                }
+                mapVal('address', user.address || '');
+                Array.from(userCreateForm.querySelectorAll('input, select, textarea')).forEach(el=>{ el.disabled = true; });
+                const pwd = userCreateForm.querySelector('input[name="password"]');
+                if (pwd){ pwd.disabled = true; pwd.placeholder = 'View only'; }
+                const submitBtn = document.getElementById('user-create-submit');
+                const cancelBtn = document.getElementById('user-create-cancel');
+                if (submitBtn) submitBtn.style.display = 'none';
+                if (cancelBtn) cancelBtn.style.display = 'none';
+            }
+            if (userCreateModal) userCreateModal.style.display = 'flex';
+        }
+        async function deleteUser(id){
+            const fd = new URLSearchParams();
+            fd.set('action','user_delete');
+            fd.set('id', String(id));
+            const res = await fetch('admin_dashboard.php', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: fd, credentials: 'same-origin' });
+            return res.json().catch(()=>({success:false}));
+        }
+        if (userPendingTbody){
+            userPendingTbody.addEventListener('click', async function(e){
+                const viewBtn = e.target.closest('.user-view-btn');
+                if (viewBtn){ openUserView(viewBtn.getAttribute('data-id')); return; }
+                const verifyBtn = e.target.closest('.user-verify-btn');
+                if (verifyBtn){
+                    const id = verifyBtn.getAttribute('data-id');
+                    try{
+                        const data = await setVerified(id, 'approved');
+                        if (data && data.success) { loadUsers(); } else { alert('Failed to verify'); }
+                    }catch(_){ alert('Network error'); }
+                    return;
+                }
+                const deleteBtn = e.target.closest('.user-delete-btn');
+                if (deleteBtn){
+                    const id = deleteBtn.getAttribute('data-id');
+                    if (!confirm('Delete this account?')) return;
+                    try{
+                        const data = await deleteUser(id);
+                        if (data && data.success) { loadUsers(); } else { alert('Failed to delete'); }
+                    }catch(_){ alert('Network error'); }
+                }
+            });
+        }
+        if (userVerifiedTbody){
+            userVerifiedTbody.addEventListener('click', async function(e){
+                const viewBtn = e.target.closest('.user-view-btn');
+                if (viewBtn){ openUserView(viewBtn.getAttribute('data-id')); return; }
+                const deleteBtn = e.target.closest('.user-delete-btn');
+                if (deleteBtn){
+                    const id = deleteBtn.getAttribute('data-id');
+                    if (!confirm('Delete this account?')) return;
+                    try{
+                        const data = await deleteUser(id);
+                        if (data && data.success) { loadUsers(); } else { alert('Failed to delete'); }
+                    }catch(_){ alert('Network error'); }
+                }
+            });
+        }
 
         const registryBack = document.getElementById('registry-back');
         if (registryBack) {
@@ -6123,6 +7062,9 @@ $stmt = null;
                 }
             });
         }
+        
     </script>
 </body>
 </html>
+ 
+ 

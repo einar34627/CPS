@@ -1113,7 +1113,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
         <?php endif; ?>
         
-        <form method="POST" action="" id="registerForm">
+        <form method="POST" action="" id="registerForm" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
             
             <div class="form-row">
@@ -1281,6 +1281,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <?php if (!empty($errors['confirm_password'])): ?>
                         <span class="error" style="color: #dc3545; font-size: 13px; margin-top: 5px; display: block;"><?php echo $errors['confirm_password']; ?></span>
                     <?php endif; ?>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="commonwealth_id">Commonwealth ID</label>
+                <div class="input-wrapper">
+                    <i class="fas fa-id-card"></i>
+                    <input type="file" id="commonwealth_id" name="commonwealth_id" accept="image/*">
+                </div>
+                <div class="field-requirements">
+                    If you don't have a Commonwealth ID, you can upload a QC ID, but your account will be verified within 12 hours. To get a Commonwealth ID, after you register, go to the dashboard and create a Commonwealth ID. Make sure to read the instructions.
                 </div>
             </div>
             
