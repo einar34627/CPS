@@ -4,7 +4,36 @@ require_once '../../config/db_connection.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['user_id'])) {
+function getProvidedApiKey() {
+    $hdr = isset($_SERVER['HTTP_X_API_KEY']) ? trim($_SERVER['HTTP_X_API_KEY']) : '';
+    if (!$hdr && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+        $auth = trim($_SERVER['HTTP_AUTHORIZATION']);
+        if (stripos($auth, 'Bearer ') === 0) {
+            $hdr = substr($auth, 7);
+        }
+    }
+    $qry = isset($_GET['api_key']) ? trim($_GET['api_key']) : '';
+    return $hdr ?: $qry;
+}
+function getValidApiKey() {
+    $key = '';
+    try { $key = getenv('CPAS_API_KEY') ?: ''; } catch (\Throwable $e) {}
+    if (!$key) {
+        $cfg = __DIR__ . '/../../config/api_config.php';
+        if (file_exists($cfg)) {
+            include $cfg;
+            if (isset($API_KEY) && is_string($API_KEY)) {
+                $key = trim($API_KEY);
+            }
+        }
+    }
+    return $key;
+}
+$providedKey = getProvidedApiKey();
+$validKey = getValidApiKey();
+$hasValidApiKey = ($providedKey !== '' && $validKey !== '' && hash_equals($validKey, $providedKey));
+
+if (!isset($_SESSION['user_id']) && !$hasValidApiKey) {
     http_response_code(401);
     echo json_encode(['error' => 'Unauthorized']);
     exit();
@@ -17,14 +46,15 @@ try {
         SELECT 
             unit_id as id,
             callsign,
-            assignment,
+            COALESCE(assignment_area, assignment) as assignment,
             latitude as lat,
-            longitude as lng,
-            status,
-            speed,
-            battery,
+            COALESCE(longtitude, longitude) as lng,
+            unit_type as type,
+            duration,
             distance_today,
             last_ping,
+            `date`,
+            `time`,
             TIMESTAMPDIFF(SECOND, last_ping, NOW()) as seconds_since_ping
         FROM gps_units 
         WHERE is_active = 1
@@ -38,10 +68,10 @@ try {
     }
     
     // Additional statistics
-    $onPatrol = count(array_filter($units, fn($u) => $u['status'] === 'On Patrol'));
-    $responding = count(array_filter($units, fn($u) => $u['status'] === 'Responding'));
-    $stationary = count(array_filter($units, fn($u) => $u['status'] === 'Stationary'));
-    $alerts = count(array_filter($units, fn($u) => $u['status'] === 'Needs Assistance'));
+    $onPatrol = 0;
+    $responding = 0;
+    $stationary = 0;
+    $alerts = 0;
     
     // Total and offline devices
     $totalDevices = 0;

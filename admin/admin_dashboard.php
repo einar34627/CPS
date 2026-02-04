@@ -2010,6 +2010,30 @@ $stmt = null;
                         <div class="registry-title">Residents Issues Log</div>
                         <button class="secondary-button" id="complaint-back">Back to Dashboard</button>
                     </div>
+                    <?php
+                        $resolved_complaints_count = 0;
+                        $pending_complaints_count = 0;
+                        foreach ($complaints as $c) {
+                            $st = strtolower($c['status'] ?? '');
+                            if ($st === 'resolved') { $resolved_complaints_count++; } else { $pending_complaints_count++; }
+                        }
+                    ?>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                        <div class="card" style="flex:1; min-width:220px;">
+                            <h2 class="card-title">Resolved</h2>
+                            <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+                                <span class="badge badge-resolved" id="online-resolved-count"><?php echo $resolved_complaints_count; ?></span>
+                                <span style="color:#6b7280;">complaints</span>
+                            </div>
+                        </div>
+                        <div class="card" style="flex:1; min-width:220px;">
+                            <h2 class="card-title">Pending</h2>
+                            <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+                                <span class="badge badge-pending" id="online-pending-count"><?php echo $pending_complaints_count; ?></span>
+                                <span style="color:#6b7280;">complaints</span>
+                            </div>
+                        </div>
+                    </div>
                     <table class="assign-table" id="complaint-table">
                         <thead>
                             <tr>
@@ -2144,13 +2168,17 @@ $stmt = null;
                                     $at = htmlspecialchars($c['submitted_at'] ?? '');
                                     $st = htmlspecialchars($c['status'] ?? '');
                                     $label = strtolower($st) === 'resolved' ? 'Resolved' : 'Pending';
+                                    $cat = htmlspecialchars($c['category'] ?? '');
+                                    $loc = htmlspecialchars($c['location'] ?? '');
+                                    $photo = htmlspecialchars($c['photo_url'] ?? '');
+                                    $video = htmlspecialchars($c['video_url'] ?? '');
                                 ?>
-                                <tr class="complaint-status-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>">
+                                <tr class="complaint-status-row" data-id="<?php echo $id; ?>" data-resident="<?php echo $resident; ?>" data-issue="<?php echo $issueSafe; ?>" data-cat="<?php echo $cat; ?>" data-loc="<?php echo $loc; ?>" data-at="<?php echo $at; ?>" data-status="<?php echo $label; ?>" data-photo="<?php echo $photo; ?>" data-video="<?php echo $video; ?>">
                                     <td><?php echo $resident; ?></td>
                                     <td><?php echo $issueShort; ?></td>
                                     <td><?php echo $at; ?></td>
                                     <td><?php if ($label === 'Resolved'): ?><span class="badge badge-resolved">Resolved</span><?php else: ?><span class="badge badge-pending">Pending</span><?php endif; ?></td>
-                                    <td class="assign-controls"><button class="primary-button status-resolve-btn">Resolved</button></td>
+                                    <td class="assign-controls"><button class="primary-button complaint-view-btn">View</button><button class="primary-button status-resolve-btn">Resolved</button></td>
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (empty($complaints)): ?>
@@ -2159,6 +2187,55 @@ $stmt = null;
                         </tbody>
                     </table>
                     <div class="details-panel" id="status-details" style="display:none;"></div>
+                    <div id="complaint-status-view-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:720px;max-width:92%;max-height:85vh;overflow:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Complaint Details</div>
+                                <button class="secondary-button" id="complaint-status-view-close">Close</button>
+                            </div>
+                            <div style="padding:16px;display:grid;gap:12px;">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Resident</div>
+                                        <div id="csv-resident" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Category</div>
+                                        <div id="csv-category" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Location</div>
+                                        <div id="csv-location" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Submitted At</div>
+                                        <div id="csv-at" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Status</div>
+                                    <div id="csv-status" style="display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Issue</div>
+                                    <div id="csv-issue" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;max-height:220px;overflow:auto;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Attachments</div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                        <div id="csv-photo-wrap" style="display:none;">
+                                            <img id="csv-photo" src="" alt="Photo" style="width:100%;height:220px;object-fit:cover;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+                                            <a id="csv-photo-download" href="#" download style="display:inline-block;margin-top:8px;">Download Photo</a>
+                                        </div>
+                                        <div id="csv-video-wrap" style="display:none;">
+                                            <video id="csv-video" controls style="width:100%;height:220px;border:1px solid #e5e7eb;border-radius:8px;background:#000;"></video>
+                                            <a id="csv-video-download" href="#" download style="display:inline-block;margin-top:8px;">Download Video</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="complaint-analytics-section">
@@ -2307,7 +2384,7 @@ $stmt = null;
                                     <td><?php echo $email; ?></td>
                                     <td><?php echo $zone; ?></td>
                                     <td><?php echo $avail; ?></td>
-                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="primary-button volreg-accept-btn">Accept</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
+                                    <td class="assign-controls"><button class="primary-button volreg-view-btn" style="background:#f59e0b;color:#fff;">View</button><button class="primary-button volreg-accept-btn" style="background:#10b981;color:#fff;">Accept</button><button class="secondary-button volreg-decline-btn" style="background:#ef4444;color:#fff;">Decline</button></td>
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (empty($pendingVolunteers)): ?>
@@ -2364,7 +2441,7 @@ $stmt = null;
                                     <td><?php echo $email; ?></td>
                                     <td><?php echo $zone; ?></td>
                                     <td><?php echo $avail; ?></td>
-                                    <td class="assign-controls"><button class="primary-button volreg-view-btn">View</button><button class="secondary-button volreg-decline-btn">Decline</button></td>
+                                    <td class="assign-controls"><button class="primary-button volreg-view-btn" style="background:#f59e0b;color:#fff;">View</button><button class="secondary-button volreg-decline-btn" style="background:#ef4444;color:#fff;">Decline</button></td>
                                 </tr>
                             <?php endforeach; ?>
                             <?php if (empty($acceptedVolunteers)): ?>
@@ -2373,6 +2450,110 @@ $stmt = null;
                         </tbody>
                     </table>
                     <div class="details-panel" id="volreg-details" style="display:none;"></div>
+                    <div id="volreg-view-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                        <div style="background:#fff;width:800px;max-width:92%;max-height:85vh;overflow:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                                <div style="font-weight:600;">Volunteer Details</div>
+                                <button class="secondary-button" id="volreg-view-close">Close</button>
+                            </div>
+                            <div style="padding:16px;display:grid;gap:12px;">
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Name</div>
+                                        <div id="vr-name" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Role</div>
+                                        <div id="vr-role" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Contact</div>
+                                        <div id="vr-contact" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Email</div>
+                                        <div id="vr-email" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Zone</div>
+                                        <div id="vr-zone" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Availability</div>
+                                        <div id="vr-availability" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Preferred Days</div>
+                                        <div id="vr-days" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Time Slots</div>
+                                        <div id="vr-slots" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Night Duty</div>
+                                        <div id="vr-night" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Max Hours/Week</div>
+                                        <div id="vr-max" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Role Preferences</div>
+                                    <div id="vr-roles" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Skills</div>
+                                    <div id="vr-skills" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Previous Volunteer</div>
+                                        <div id="vr-prev" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Years of Experience</div>
+                                        <div id="vr-years" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Physical Fit</div>
+                                        <div id="vr-fit" style="font-weight:600;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Long Period Ability</div>
+                                        <div id="vr-long" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Previous Organization</div>
+                                    <div id="vr-prevorg" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Medical Conditions</div>
+                                    <div id="vr-medical" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center;">
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Status</div>
+                                        <div id="vr-status-badge" style="display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;"></div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Applied</div>
+                                        <div id="vr-created" style="font-weight:600;"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Valid ID</div>
+                                    <div id="vr-id-wrap" style="display:none;">
+                                        <img id="vr-id-img" src="" alt="Valid ID" style="max-width:260px;max-height:260px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="duty-roster-section">
@@ -2393,7 +2574,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($volunteers as $v): ?>
+                            <?php foreach ($acceptedVolunteers as $v): ?>
                                 <?php
                                     $id = (int)($v['id'] ?? 0);
                                     $name = htmlspecialchars($v['name'] ?? '');
@@ -2430,7 +2611,7 @@ $stmt = null;
                                     <td class="assign-controls"><button class="primary-button duty-assign-btn">Assign</button></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($volunteers)): ?>
+                            <?php if (empty($acceptedVolunteers)): ?>
                                 <tr><td colspan="6">No volunteers found.</td></tr>
                             <?php endif; ?>
                         </tbody>
@@ -2456,7 +2637,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($volunteers as $v): ?>
+                            <?php foreach ($acceptedVolunteers as $v): ?>
                                 <?php
                                     $id = (int)($v['id'] ?? 0);
                                     $name = htmlspecialchars($v['name'] ?? '');
@@ -2475,7 +2656,7 @@ $stmt = null;
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($volunteers)): ?>
+                            <?php if (empty($acceptedVolunteers)): ?>
                                 <tr><td colspan="6">No volunteers found.</td></tr>
                             <?php endif; ?>
                         </tbody>
@@ -2501,7 +2682,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($volunteers as $v): ?>
+                            <?php foreach ($acceptedVolunteers as $v): ?>
                                 <?php
                                     $id = (int)($v['id'] ?? 0);
                                     $name = htmlspecialchars($v['name'] ?? '');
@@ -2538,7 +2719,7 @@ $stmt = null;
                                     <td class="assign-controls"><button class="primary-button task-assign-btn">Assign Task</button></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($volunteers)): ?>
+                            <?php if (empty($acceptedVolunteers)): ?>
                                 <tr><td colspan="6">No volunteers found.</td></tr>
                             <?php endif; ?>
                         </tbody>
@@ -2584,28 +2765,32 @@ $stmt = null;
                         </div>
                     </div>
                     <div style="margin-top:16px;display:grid;grid-template-columns:280px 1fr 360px;gap:16px;align-items:start;">
-                        <div class="card">
-                            <h2 class="card-title">Unit Status</h2>
-                            <div style="margin-top:8px;display:grid;grid-template-columns:1fr;gap:8px;">
-                                <div style="display:flex;justify-content:space-between;align-items:center;">
-                                    <span>On Patrol</span>
-                                    <span class="badge badge-active" id="count-on-patrol">0</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;align-items:center;">
-                                    <span>Responding</span>
-                                    <span class="badge badge-active" id="count-responding">0</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;align-items:center;">
-                                    <span>Stationary</span>
-                                    <span class="badge badge-inactive" id="count-stationary">0</span>
-                                </div>
-                                <div style="display:flex;justify-content:space-between;align-items:center;">
-                                    <span>Needs Assistance</span>
-                                    <span class="badge badge-pending" id="count-alerts">0</span>
+                        <div>
+                            <div class="card">
+                                <h2 class="card-title">Unit Status</h2>
+                                <div style="margin-top:8px;display:grid;grid-template-columns:1fr;gap:8px;">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <span>On Patrol</span>
+                                        <span class="badge badge-active" id="count-on-patrol">0</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <span>Responding</span>
+                                        <span class="badge badge-active" id="count-responding">0</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <span>Stationary</span>
+                                        <span class="badge badge-inactive" id="count-stationary">0</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <span>Needs Assistance</span>
+                                        <span class="badge badge-pending" id="count-alerts">0</span>
+                                    </div>
                                 </div>
                             </div>
-                            <h3 class="card-title" style="margin-top:16px;">Monitoring Units</h3>
-                            <div id="unit-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:380px;overflow:auto;"></div>
+                            <div class="card" style="margin-top:16px;">
+                                <h2 class="card-title">Monitoring Units</h2>
+                                <div id="unit-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px;max-height:380px;overflow:auto;"></div>
+                            </div>
                         </div>
                         <div>
                             <div class="card">
@@ -2615,18 +2800,17 @@ $stmt = null;
                                 </div>
                             </div>
                         </div>
-                        <div class="card">
-                            <h2 class="card-title">Unit Information</h2>
-                            <div id="unit-info-panel" style="margin-top:8px;line-height:1.6;">
-                                <div><strong id="ui-name">—</strong> <span class="badge badge-inactive" id="ui-status">—</span></div>
-                                <div style="color:#6b7280;">Assignment: <span id="ui-assignment">—</span></div>
-                                <div>Location: <span id="ui-location">—</span></div>
-                                <div>Speed: <span id="ui-speed">—</span></div>
-                                <div>Battery: <span id="ui-battery">—</span></div>
-                                <div>Distance Today: <span id="ui-distance">—</span></div>
-                                <div>Last Update: <span id="ui-last">—</span></div>
+                            <div class="card">
+                                <h2 class="card-title">Unit Information</h2>
+                                <div id="unit-info-panel" style="margin-top:8px;line-height:1.6;">
+                                    <div><strong id="ui-name">—</strong> <span style="color:#6b7280;margin-left:8px;">Duration: <span id="ui-duration">—</span></span></div>
+                                    <div style="color:#6b7280;">Unit Type: <span id="ui-type">—</span></div>
+                                    <div style="color:#6b7280;">Assignment: <span id="ui-assignment">—</span></div>
+                                    <div>Location: <span id="ui-location">—</span></div>
+                                    <div>Distance Today: <span id="ui-distance">—</span></div>
+                                    <div>Last Update: <span id="ui-last">—</span></div>
+                                </div>
                             </div>
-                        </div>
                     </div>
                     <div class="card" style="margin-top:16px;">
                         <h2 class="card-title">Create Patrol Unit</h2>
@@ -2652,16 +2836,17 @@ $stmt = null;
                                     </select>
                                 </div>
                                 <div>
-                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Status</label>
-                                    <select class="input-text" id="status-input">
-                                        <option value="On Patrol">On Patrol</option>
-                                        <option value="Responding">Responding</option>
-                                        <option value="Stationary">Stationary</option>
-                                        <option value="Needs Assistance">Needs Assistance</option>
-                                    </select>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Duration</label>
+                                    <input type="text" class="input-text" id="duration-input" placeholder="e.g., 90 minutes">
                                 </div>
-                                <input type="hidden" id="latitude-input" value="14.697000">
-                                <input type="hidden" id="longitude-input" value="121.088000">
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Latitude</label>
+                                    <input type="number" step="0.000001" class="input-text" id="latitude-input" placeholder="14.697000" value="14.697000">
+                                </div>
+                                <div>
+                                    <label style="display:block;font-weight:600;margin-bottom:6px;">Longitude</label>
+                                    <input type="number" step="0.000001" class="input-text" id="longitude-input" placeholder="121.088000" value="121.088000">
+                                </div>
                                 <div>
                                     <label style="display:block;font-weight:600;margin-bottom:6px;">Date</label>
                                     <input type="date" class="input-text" id="gps-date-input" placeholder="mm/dd/yyyy">
@@ -2766,11 +2951,43 @@ $stmt = null;
                         } catch (Exception $e) {
                             $event_regs = [];
                         }
+                        $accepted_regs = array_filter($event_regs, function($er){ $st = strtolower($er['status'] ?? ''); return $st === 'accepted'; });
+                        $pending_regs  = array_filter($event_regs, function($er){ $st = strtolower($er['status'] ?? ''); return $st === 'pending'; });
+                        $total_regs    = count($event_regs);
+                        $new_regs      = 0;
+                        $nowTs         = time();
+                        foreach ($event_regs as $er) {
+                            $ts = isset($er['created_at']) ? strtotime($er['created_at']) : 0;
+                            if ($ts && $ts >= strtotime('-7 days', $nowTs)) { $new_regs++; }
+                        }
                     ?>
-                    <div class="registry-header" style="margin-top:16px;">
-                        <div class="registry-title">Event Registrations</div>
+                    <div class="stats-grid" style="margin-top:16px;">
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Total Registered</span>
+                            </div>
+                            <div class="stat-value"><?php echo $total_regs; ?></div>
+                            <div class="stat-info"><span>All registrations</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">New Registered</span>
+                            </div>
+                            <div class="stat-value"><?php echo $new_regs; ?></div>
+                            <div class="stat-info"><span>Last 7 days</span></div>
+                        </div>
+                        <div class="stat-card stat-card-white">
+                            <div class="stat-header">
+                                <span class="stat-title">Pending</span>
+                            </div>
+                            <div class="stat-value"><?php echo count($pending_regs); ?></div>
+                            <div class="stat-info"><span>Awaiting approval</span></div>
+                        </div>
                     </div>
-                    <table class="assign-table" id="eventreg-table">
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Pending Registrations</div>
+                    </div>
+                    <table class="assign-table" id="eventreg-pending-table">
                         <thead>
                             <tr>
                                 <th>Name</th>
@@ -2784,7 +3001,7 @@ $stmt = null;
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($event_regs as $er): ?>
+                            <?php foreach ($pending_regs as $er): ?>
                                 <?php
                                     $rid = (int)($er['id'] ?? 0);
                                     $nameRaw = trim(($er['name'] ?? ''));
@@ -2798,6 +3015,8 @@ $stmt = null;
                                     $skills = htmlspecialchars($er['skills'] ?? '');
                                     $vol = isset($er['volunteer']) ? ((int)$er['volunteer'] === 1 ? 'Yes' : 'No') : 'No';
                                     $status = htmlspecialchars($er['status'] ?? 'pending');
+                                    $address = htmlspecialchars($er['address'] ?? '');
+                                    $created = htmlspecialchars($er['created_at'] ?? '');
                                 ?>
                                 <tr class="eventreg-row"
                                     data-id="<?php echo $rid; ?>"
@@ -2808,6 +3027,8 @@ $stmt = null;
                                     data-skills="<?php echo $skills; ?>"
                                     data-volunteer="<?php echo $vol === 'Yes' ? 1 : 0; ?>"
                                     data-status="<?php echo $status; ?>"
+                                    data-address="<?php echo $address; ?>"
+                                    data-created="<?php echo $created; ?>"
                                 >
                                     <td><?php echo $name; ?></td>
                                     <td><?php echo $contact !== '' ? $contact : '—'; ?></td>
@@ -2815,26 +3036,133 @@ $stmt = null;
                                     <td><?php echo $type !== '' ? $type : '—'; ?></td>
                                     <td><?php echo $skills !== '' ? $skills : '—'; ?></td>
                                     <td><?php echo $vol; ?></td>
-                                    <td>
-                                        <?php if ($status === 'accepted'): ?>
-                                            <span class="badge badge-active">accepted</span>
-                                        <?php elseif ($status === 'declined'): ?>
-                                            <span class="badge badge-inactive">declined</span>
-                                        <?php else: ?>
-                                            <span class="badge badge-pending">pending</span>
-                                        <?php endif; ?>
-                                    </td>
+                                    <td><span class="badge badge-pending">pending</span></td>
                                     <td class="assign-controls">
-                                        <button class="primary-button eventreg-accept-btn">Accept</button>
-                                        <button class="secondary-button eventreg-decline-btn">Decline</button>
+                                        <button class="secondary-button eventreg-view-btn" style="background:#f59e0b;color:#fff;">View</button>
+                                        <button class="primary-button eventreg-accept-btn" style="background:#10b981;color:#fff;">Accept</button>
+                                        <button class="secondary-button eventreg-decline-btn" style="background:#ef4444;color:#fff;">Decline</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($event_regs)): ?>
-                                <tr><td colspan="8">No event registrations found.</td></tr>
+                            <?php if (empty($pending_regs)): ?>
+                                <tr><td colspan="8">No pending registrations.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
+                    <div class="registry-header" style="margin-top:16px;">
+                        <div class="registry-title">Accepted Registrations</div>
+                    </div>
+                    <table class="assign-table" id="eventreg-accepted-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Contact</th>
+                                <th>Email</th>
+                                <th>Type</th>
+                                <th>Skills</th>
+                                <th>Volunteer</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($accepted_regs as $er): ?>
+                                <?php
+                                    $rid = (int)($er['id'] ?? 0);
+                                    $nameRaw = trim(($er['name'] ?? ''));
+                                    if ($nameRaw === '') {
+                                        $nameRaw = trim(($er['first_name'] ?? '').' '.($er['middle_name'] ?? '').' '.($er['last_name'] ?? ''));
+                                    }
+                                    $name = htmlspecialchars($nameRaw !== '' ? $nameRaw : '—');
+                                    $contact = htmlspecialchars(($er['contact'] ?? '') !== '' ? $er['contact'] : ($er['u_contact'] ?? ''));
+                                    $email = htmlspecialchars(($er['email'] ?? '') !== '' ? $er['email'] : ($er['u_email'] ?? ''));
+                                    $type = htmlspecialchars($er['type'] ?? '');
+                                    $skills = htmlspecialchars($er['skills'] ?? '');
+                                    $vol = isset($er['volunteer']) ? ((int)$er['volunteer'] === 1 ? 'Yes' : 'No') : 'No';
+                                    $status = htmlspecialchars($er['status'] ?? 'accepted');
+                                    $address = htmlspecialchars($er['address'] ?? '');
+                                    $created = htmlspecialchars($er['created_at'] ?? '');
+                                ?>
+                                <tr class="eventreg-row"
+                                    data-id="<?php echo $rid; ?>"
+                                    data-name="<?php echo $name; ?>"
+                                    data-contact="<?php echo $contact; ?>"
+                                    data-email="<?php echo $email; ?>"
+                                    data-type="<?php echo $type; ?>"
+                                    data-skills="<?php echo $skills; ?>"
+                                    data-volunteer="<?php echo $vol === 'Yes' ? 1 : 0; ?>"
+                                    data-status="<?php echo $status; ?>"
+                                    data-address="<?php echo $address; ?>"
+                                    data-created="<?php echo $created; ?>"
+                                >
+                                    <td><?php echo $name; ?></td>
+                                    <td><?php echo $contact !== '' ? $contact : '—'; ?></td>
+                                    <td><?php echo $email !== '' ? $email : '—'; ?></td>
+                                    <td><?php echo $type !== '' ? $type : '—'; ?></td>
+                                    <td><?php echo $skills !== '' ? $skills : '—'; ?></td>
+                                    <td><?php echo $vol; ?></td>
+                                    <td><span class="badge badge-active">accepted</span></td>
+                                    <td class="assign-controls">
+                                        <button class="secondary-button eventreg-view-btn" style="background:#f59e0b;color:#fff;">View</button>
+                                        <button class="secondary-button eventreg-decline-btn" style="background:#ef4444;color:#fff;">Decline</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($accepted_regs)): ?>
+                                <tr><td colspan="8">No accepted registrations.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="eventreg-view-modal" style="position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(17,24,39,.25);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;">
+                <div style="background:#fff;width:720px;max-width:92%;max-height:85vh;overflow:auto;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e5e7eb;">
+                        <div style="font-weight:600;">Registration Details</div>
+                        <button class="secondary-button" id="eventreg-view-close">Close</button>
+                    </div>
+                    <div style="padding:16px;display:grid;gap:12px;">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Name</div>
+                                <div id="er-name" style="font-weight:600;"></div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Contact</div>
+                                <div id="er-contact" style="font-weight:600;"></div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Email</div>
+                                <div id="er-email" style="font-weight:600;"></div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Type</div>
+                                <div id="er-type" style="font-weight:600;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Skills</div>
+                            <div id="er-skills" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Volunteer</div>
+                                <div id="er-volunteer" style="font-weight:600;"></div>
+                            </div>
+                            <div>
+                                <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Applied</div>
+                                <div id="er-created" style="font-weight:600;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Status</div>
+                            <div id="er-status-badge" style="display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;font-size:12px;"></div>
+                        </div>
+                        <div>
+                            <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Address</div>
+                            <div id="er-address" style="white-space:pre-wrap;line-height:1.6;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#f8fafc;"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="content-section" id="event-scheduling-section">
@@ -4637,6 +4965,26 @@ $stmt = null;
         }
         function openModal(id){ const el=document.getElementById(id); if(el) el.style.display='flex'; }
         function closeModal(id){ const el=document.getElementById(id); if(el) el.style.display='none'; }
+        function resolveUploadsUrl(path){
+            if (!path) return '';
+            if (/^https?:\/\//i.test(path)) return path;
+            const p = window.location.pathname || '/';
+            const idx = p.indexOf('/admin/');
+            const root = idx !== -1 ? p.substring(0, idx + 1) : '/';
+            const cleaned = path.startsWith('/') ? path.slice(1) : path;
+            return root + cleaned;
+        }
+        function updateOnlineComplaintKpis(){
+            const table = document.getElementById('complaint-table');
+            if (!table) return;
+            const rows = Array.from(table.querySelectorAll('.complaint-row'));
+            const resolved = rows.filter(r => (r.getAttribute('data-status')||'') === 'Resolved').length;
+            const pending = rows.filter(r => (r.getAttribute('data-status')||'') !== 'Resolved').length;
+            const rc = document.getElementById('online-resolved-count');
+            const pc = document.getElementById('online-pending-count');
+            if (rc) rc.textContent = resolved;
+            if (pc) pc.textContent = pending;
+        }
         const genKeyBtn = document.getElementById('security-generate-key-btn');
         const apiStatusEl = document.getElementById('api-status');
         if (genKeyBtn && apiStatusEl) {
@@ -4833,8 +5181,6 @@ $stmt = null;
                 const declineBtn = e.target.closest('.volreg-decline-btn');
                 if (!row) return;
                 if (viewBtn) {
-                    const panel = document.getElementById('volreg-details');
-                    panel.style.display = 'block';
                     const name = row.getAttribute('data-name') || '—';
                     const role = row.getAttribute('data-role') || 'Volunteer';
                     const contact = row.getAttribute('data-contact') || '—';
@@ -4857,45 +5203,53 @@ $stmt = null;
                     const idSrc = idurl ? ('../' + idurl) : '';
                     const created = row.getAttribute('data-created') || '';
                     const status = row.getAttribute('data-status') || 'pending';
-                    const badgeClass = status==='pending' ? 'badge-pending' : (status==='declined' ? 'badge-inactive' : 'badge-active');
-                    panel.innerHTML = `
-                        <div>
-                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                                <div>
-                                    <div style="font-weight:600;font-size:16px;">${name}</div>
-                                    <div style="color:#6b7280;font-size:14px;">${role} • ${zone} • ${avail}</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="font-weight:600;">Valid ID</div>
-                                    ${idSrc ? `<img src="${idSrc}" alt="Valid ID" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">` : ''}
-                                </div>
-                            </div>
-                            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
-                                <button class="secondary-button" id="volreg-details-close">Close</button>
-                            </div>
-                            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                                <div>Contact: <strong>${contact}</strong></div>
-                                <div>Email: <strong>${email}</strong></div>
-                                <div>Preferred Days: <strong>${days}</strong></div>
-                                <div>Time Slots: <strong>${slots}</strong></div>
-                                <div>Night Duty: <strong>${nightLabel}</strong></div>
-                                <div>Max Hours/Week: <strong>${maxh}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Role Preferences: <strong>${roles}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Skills: <strong>${skills}</strong></div>
-                                <div>Previous Volunteer: <strong>${prevLabel}</strong></div>
-                                <div>Years of Experience: <strong>${years}</strong></div>
-                                <div>Physical Fit: <strong>${fitLabel}</strong></div>
-                                <div>Long Period Ability: <strong>${longLabel}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Previous Organization: <strong>${prevorg}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Medical Conditions: <strong>${medical}</strong></div>
-                                <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
-                                <div>Applied: <strong>${created}</strong></div>
-                            </div>
-                        </div>`;
-                    const closeBtn = panel.querySelector('#volreg-details-close');
-                    if (closeBtn) {
-                        closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
+                    const badgeClass = status==='pending' ? 'badge badge-pending' : (status==='declined' ? 'badge badge-inactive' : 'badge badge-active');
+                    const nEl = document.getElementById('vr-name');
+                    const rEl = document.getElementById('vr-role');
+                    const cEl = document.getElementById('vr-contact');
+                    const eEl = document.getElementById('vr-email');
+                    const zEl = document.getElementById('vr-zone');
+                    const aEl = document.getElementById('vr-availability');
+                    const dEl = document.getElementById('vr-days');
+                    const sEl = document.getElementById('vr-slots');
+                    const nLabelEl = document.getElementById('vr-night');
+                    const mEl = document.getElementById('vr-max');
+                    const rolesEl = document.getElementById('vr-roles');
+                    const skillsEl = document.getElementById('vr-skills');
+                    const prevEl = document.getElementById('vr-prev');
+                    const yearsEl = document.getElementById('vr-years');
+                    const fitEl = document.getElementById('vr-fit');
+                    const longEl = document.getElementById('vr-long');
+                    const prevorgEl = document.getElementById('vr-prevorg');
+                    const medicalEl = document.getElementById('vr-medical');
+                    const statusEl = document.getElementById('vr-status-badge');
+                    const createdEl = document.getElementById('vr-created');
+                    const idWrap = document.getElementById('vr-id-wrap');
+                    const idImg = document.getElementById('vr-id-img');
+                    if (nEl) nEl.textContent = name;
+                    if (rEl) rEl.textContent = role;
+                    if (cEl) cEl.textContent = contact;
+                    if (eEl) eEl.textContent = email;
+                    if (zEl) zEl.textContent = zone;
+                    if (aEl) aEl.textContent = avail;
+                    if (dEl) dEl.textContent = days;
+                    if (sEl) sEl.textContent = slots;
+                    if (nLabelEl) nLabelEl.textContent = nightLabel;
+                    if (mEl) mEl.textContent = maxh;
+                    if (rolesEl) rolesEl.textContent = roles;
+                    if (skillsEl) skillsEl.textContent = skills;
+                    if (prevEl) prevEl.textContent = prevLabel;
+                    if (yearsEl) yearsEl.textContent = years;
+                    if (fitEl) fitEl.textContent = fitLabel;
+                    if (longEl) longEl.textContent = longLabel;
+                    if (prevorgEl) prevorgEl.textContent = prevorg;
+                    if (medicalEl) medicalEl.textContent = medical;
+                    if (createdEl) createdEl.textContent = created;
+                    if (statusEl) { statusEl.className = badgeClass; statusEl.textContent = status; }
+                    if (idWrap && idImg) {
+                        if (idSrc) { idWrap.style.display = 'block'; idImg.src = idSrc; } else { idWrap.style.display = 'none'; idImg.removeAttribute('src'); }
                     }
+                    openModal('volreg-view-modal');
                     return;
                 }
                 async function setStatus(newStatus){
@@ -4910,9 +5264,9 @@ $stmt = null;
                         const data = await res.json();
                         if (data && data.success){
                             row.setAttribute('data-status', data.status);
-                            const panel = document.getElementById('volreg-details');
-                            if (panel && panel.style.display !== 'none'){
-                                const badge = panel.querySelector('#volreg-status-badge');
+                            const modal = document.getElementById('volreg-view-modal');
+                            if (modal && modal.style.display !== 'none'){
+                                const badge = modal.querySelector('#vr-status-badge');
                                 if (badge){
                                     badge.textContent = data.status;
                                     badge.className = 'badge ' + (data.status==='pending' ? 'badge-pending' : (data.status==='declined' ? 'badge-inactive' : 'badge-active'));
@@ -4937,8 +5291,6 @@ $stmt = null;
                 const declineBtn = e.target.closest('.volreg-decline-btn');
                 if (!row) return;
                 if (viewBtn) {
-                    const panel = document.getElementById('volreg-details');
-                    panel.style.display = 'block';
                     const name = row.getAttribute('data-name') || '—';
                     const role = row.getAttribute('data-role') || 'Volunteer';
                     const contact = row.getAttribute('data-contact') || '—';
@@ -4961,45 +5313,53 @@ $stmt = null;
                     const idSrc = idurl ? ('../' + idurl) : '';
                     const created = row.getAttribute('data-created') || '';
                     const status = row.getAttribute('data-status') || 'accepted';
-                    const badgeClass = status==='pending' ? 'badge-pending' : (status==='declined' ? 'badge-inactive' : 'badge-active');
-                    panel.innerHTML = `
-                        <div>
-                            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                                <div>
-                                    <div style="font-weight:600;font-size:16px;">${name}</div>
-                                    <div style="color:#6b7280;font-size:14px;">${role} • ${zone} • ${avail}</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="font-weight:600;">Valid ID</div>
-                                    ${idSrc ? `<img src="${idSrc}" alt="Valid ID" style="max-width:160px;max-height:160px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover;">` : ''}
-                                </div>
-                            </div>
-                            <div style="display:flex;justify-content:flex-end;margin-top:8px;">
-                                <button class="secondary-button" id="volreg-details-close">Close</button>
-                            </div>
-                            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                                <div>Contact: <strong>${contact}</strong></div>
-                                <div>Email: <strong>${email}</strong></div>
-                                <div>Preferred Days: <strong>${days}</strong></div>
-                                <div>Time Slots: <strong>${slots}</strong></div>
-                                <div>Night Duty: <strong>${nightLabel}</strong></div>
-                                <div>Max Hours/Week: <strong>${maxh}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Role Preferences: <strong>${roles}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Skills: <strong>${skills}</strong></div>
-                                <div>Previous Volunteer: <strong>${prevLabel}</strong></div>
-                                <div>Years of Experience: <strong>${years}</strong></div>
-                                <div>Physical Fit: <strong>${fitLabel}</strong></div>
-                                <div>Long Period Ability: <strong>${longLabel}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Previous Organization: <strong>${prevorg}</strong></div>
-                                <div class="full" style="grid-column:1/-1;">Medical Conditions: <strong>${medical}</strong></div>
-                                <div>Status: <span id="volreg-status-badge" class="badge ${badgeClass}">${status}</span></div>
-                                <div>Applied: <strong>${created}</strong></div>
-                            </div>
-                        </div>`;
-                    const closeBtn = panel.querySelector('#volreg-details-close');
-                    if (closeBtn) {
-                        closeBtn.addEventListener('click', function(){ panel.style.display = 'none'; });
+                    const badgeClass = status==='pending' ? 'badge badge-pending' : (status==='declined' ? 'badge badge-inactive' : 'badge badge-active');
+                    const nEl = document.getElementById('vr-name');
+                    const rEl = document.getElementById('vr-role');
+                    const cEl = document.getElementById('vr-contact');
+                    const eEl = document.getElementById('vr-email');
+                    const zEl = document.getElementById('vr-zone');
+                    const aEl = document.getElementById('vr-availability');
+                    const dEl = document.getElementById('vr-days');
+                    const sEl = document.getElementById('vr-slots');
+                    const nLabelEl = document.getElementById('vr-night');
+                    const mEl = document.getElementById('vr-max');
+                    const rolesEl = document.getElementById('vr-roles');
+                    const skillsEl = document.getElementById('vr-skills');
+                    const prevEl = document.getElementById('vr-prev');
+                    const yearsEl = document.getElementById('vr-years');
+                    const fitEl = document.getElementById('vr-fit');
+                    const longEl = document.getElementById('vr-long');
+                    const prevorgEl = document.getElementById('vr-prevorg');
+                    const medicalEl = document.getElementById('vr-medical');
+                    const statusEl = document.getElementById('vr-status-badge');
+                    const createdEl = document.getElementById('vr-created');
+                    const idWrap = document.getElementById('vr-id-wrap');
+                    const idImg = document.getElementById('vr-id-img');
+                    if (nEl) nEl.textContent = name;
+                    if (rEl) rEl.textContent = role;
+                    if (cEl) cEl.textContent = contact;
+                    if (eEl) eEl.textContent = email;
+                    if (zEl) zEl.textContent = zone;
+                    if (aEl) aEl.textContent = avail;
+                    if (dEl) dEl.textContent = days;
+                    if (sEl) sEl.textContent = slots;
+                    if (nLabelEl) nLabelEl.textContent = nightLabel;
+                    if (mEl) mEl.textContent = maxh;
+                    if (rolesEl) rolesEl.textContent = roles;
+                    if (skillsEl) skillsEl.textContent = skills;
+                    if (prevEl) prevEl.textContent = prevLabel;
+                    if (yearsEl) yearsEl.textContent = years;
+                    if (fitEl) fitEl.textContent = fitLabel;
+                    if (longEl) longEl.textContent = longLabel;
+                    if (prevorgEl) prevorgEl.textContent = prevorg;
+                    if (medicalEl) medicalEl.textContent = medical;
+                    if (createdEl) createdEl.textContent = created;
+                    if (statusEl) { statusEl.className = badgeClass; statusEl.textContent = status; }
+                    if (idWrap && idImg) {
+                        if (idSrc) { idWrap.style.display = 'block'; idImg.src = idSrc; } else { idWrap.style.display = 'none'; idImg.removeAttribute('src'); }
                     }
+                    openModal('volreg-view-modal');
                     return;
                 }
                 async function setStatus(newStatus){
@@ -5014,9 +5374,9 @@ $stmt = null;
                         const data = await res.json();
                         if (data && data.success){
                             row.setAttribute('data-status', data.status);
-                            const panel = document.getElementById('volreg-details');
-                            if (panel && panel.style.display !== 'none'){
-                                const badge = panel.querySelector('#volreg-status-badge');
+                            const modal = document.getElementById('volreg-view-modal');
+                            if (modal && modal.style.display !== 'none'){
+                                const badge = modal.querySelector('#vr-status-badge');
                                 if (badge){
                                     badge.textContent = data.status;
                                     badge.className = 'badge ' + (data.status==='pending' ? 'badge-pending' : (data.status==='declined' ? 'badge-inactive' : 'badge-active'));
@@ -5037,9 +5397,43 @@ $stmt = null;
         if (eventregTable) {
             eventregTable.addEventListener('click', async function(e){
                 const row = e.target.closest('.eventreg-row');
+                const viewBtn = e.target.closest('.eventreg-view-btn');
                 const acceptBtn = e.target.closest('.eventreg-accept-btn');
                 const declineBtn = e.target.closest('.eventreg-decline-btn');
                 if (!row) return;
+                if (viewBtn) {
+                    const name = row.getAttribute('data-name') || '—';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const type = row.getAttribute('data-type') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const vol = row.getAttribute('data-volunteer');
+                    const volLabel = vol==='1'?'Yes':(vol==='0'?'No':'—');
+                    const status = row.getAttribute('data-status') || 'pending';
+                    const created = row.getAttribute('data-created') || '';
+                    const address = row.getAttribute('data-address') || '—';
+                    const badgeClass = status==='pending' ? 'badge badge-pending' : (status==='declined' ? 'badge badge-inactive' : 'badge badge-active');
+                    const nEl = document.getElementById('er-name');
+                    const cEl = document.getElementById('er-contact');
+                    const eEl = document.getElementById('er-email');
+                    const tEl = document.getElementById('er-type');
+                    const sEl = document.getElementById('er-skills');
+                    const vEl = document.getElementById('er-volunteer');
+                    const stEl = document.getElementById('er-status-badge');
+                    const crEl = document.getElementById('er-created');
+                    const aEl = document.getElementById('er-address');
+                    if (nEl) nEl.textContent = name;
+                    if (cEl) cEl.textContent = contact;
+                    if (eEl) eEl.textContent = email;
+                    if (tEl) tEl.textContent = type;
+                    if (sEl) sEl.textContent = skills;
+                    if (vEl) vEl.textContent = volLabel;
+                    if (crEl) crEl.textContent = created;
+                    if (aEl) aEl.textContent = address;
+                    if (stEl) { stEl.className = badgeClass; stEl.textContent = status; }
+                    openModal('eventreg-view-modal');
+                    return;
+                }
                 async function setStatus(newStatus){
                     const id = row.getAttribute('data-id');
                     try{
@@ -5072,6 +5466,160 @@ $stmt = null;
                 if (acceptBtn) { await setStatus('accepted'); return; }
                 if (declineBtn) { await setStatus('declined'); return; }
             });
+        }
+        const eventregPendingTable = document.getElementById('eventreg-pending-table');
+        if (eventregPendingTable) {
+            eventregPendingTable.addEventListener('click', async function(e){
+                const row = e.target.closest('.eventreg-row');
+                const viewBtn = e.target.closest('.eventreg-view-btn');
+                const acceptBtn = e.target.closest('.eventreg-accept-btn');
+                const declineBtn = e.target.closest('.eventreg-decline-btn');
+                if (!row) return;
+                if (viewBtn) {
+                    const name = row.getAttribute('data-name') || '—';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const type = row.getAttribute('data-type') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const vol = row.getAttribute('data-volunteer');
+                    const volLabel = vol==='1'?'Yes':(vol==='0'?'No':'—');
+                    const status = row.getAttribute('data-status') || 'pending';
+                    const created = row.getAttribute('data-created') || '';
+                    const address = row.getAttribute('data-address') || '—';
+                    const badgeClass = status==='pending' ? 'badge badge-pending' : (status==='declined' ? 'badge badge-inactive' : 'badge badge-active');
+                    const nEl = document.getElementById('er-name');
+                    const cEl = document.getElementById('er-contact');
+                    const eEl = document.getElementById('er-email');
+                    const tEl = document.getElementById('er-type');
+                    const sEl = document.getElementById('er-skills');
+                    const vEl = document.getElementById('er-volunteer');
+                    const stEl = document.getElementById('er-status-badge');
+                    const crEl = document.getElementById('er-created');
+                    const aEl = document.getElementById('er-address');
+                    if (nEl) nEl.textContent = name;
+                    if (cEl) cEl.textContent = contact;
+                    if (eEl) eEl.textContent = email;
+                    if (tEl) tEl.textContent = type;
+                    if (sEl) sEl.textContent = skills;
+                    if (vEl) vEl.textContent = volLabel;
+                    if (crEl) crEl.textContent = created;
+                    if (aEl) aEl.textContent = address;
+                    if (stEl) { stEl.className = badgeClass; stEl.textContent = status; }
+                    openModal('eventreg-view-modal');
+                    return;
+                }
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'event_registration_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const statusCell = row.querySelector('td:nth-child(7)');
+                            if (statusCell){
+                                if (data.status === 'accepted') {
+                                    statusCell.innerHTML = '<span class="badge badge-active">accepted</span>';
+                                } else if (data.status === 'declined') {
+                                    statusCell.innerHTML = '<span class="badge badge-inactive">declined</span>';
+                                } else {
+                                    statusCell.innerHTML = '<span class="badge badge-pending">pending</span>';
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
+                if (acceptBtn) { await setStatus('accepted'); return; }
+                if (declineBtn) { await setStatus('declined'); return; }
+            });
+        }
+        const eventregAcceptedTable = document.getElementById('eventreg-accepted-table');
+        if (eventregAcceptedTable) {
+            eventregAcceptedTable.addEventListener('click', async function(e){
+                const row = e.target.closest('.eventreg-row');
+                const viewBtn = e.target.closest('.eventreg-view-btn');
+                const declineBtn = e.target.closest('.eventreg-decline-btn');
+                if (!row) return;
+                if (viewBtn) {
+                    const name = row.getAttribute('data-name') || '—';
+                    const contact = row.getAttribute('data-contact') || '—';
+                    const email = row.getAttribute('data-email') || '—';
+                    const type = row.getAttribute('data-type') || '—';
+                    const skills = row.getAttribute('data-skills') || '—';
+                    const vol = row.getAttribute('data-volunteer');
+                    const volLabel = vol==='1'?'Yes':(vol==='0'?'No':'—');
+                    const status = row.getAttribute('data-status') || 'accepted';
+                    const created = row.getAttribute('data-created') || '';
+                    const address = row.getAttribute('data-address') || '—';
+                    const badgeClass = status==='pending' ? 'badge badge-pending' : (status==='declined' ? 'badge badge-inactive' : 'badge badge-active');
+                    const nEl = document.getElementById('er-name');
+                    const cEl = document.getElementById('er-contact');
+                    const eEl = document.getElementById('er-email');
+                    const tEl = document.getElementById('er-type');
+                    const sEl = document.getElementById('er-skills');
+                    const vEl = document.getElementById('er-volunteer');
+                    const stEl = document.getElementById('er-status-badge');
+                    const crEl = document.getElementById('er-created');
+                    const aEl = document.getElementById('er-address');
+                    if (nEl) nEl.textContent = name;
+                    if (cEl) cEl.textContent = contact;
+                    if (eEl) eEl.textContent = email;
+                    if (tEl) tEl.textContent = type;
+                    if (sEl) sEl.textContent = skills;
+                    if (vEl) vEl.textContent = volLabel;
+                    if (crEl) crEl.textContent = created;
+                    if (aEl) aEl.textContent = address;
+                    if (stEl) { stEl.className = badgeClass; stEl.textContent = status; }
+                    openModal('eventreg-view-modal');
+                    return;
+                }
+                async function setStatus(newStatus){
+                    const id = row.getAttribute('data-id');
+                    try{
+                        const res = await fetch('admin_dashboard.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: new URLSearchParams({ action: 'event_registration_set_status', id, status: newStatus }),
+                            credentials: 'same-origin'
+                        });
+                        const data = await res.json();
+                        if (data && data.success){
+                            row.setAttribute('data-status', data.status);
+                            const statusCell = row.querySelector('td:nth-child(7)');
+                            if (statusCell){
+                                if (data.status === 'accepted') {
+                                    statusCell.innerHTML = '<span class="badge badge-active">accepted</span>';
+                                } else if (data.status === 'declined') {
+                                    statusCell.innerHTML = '<span class="badge badge-inactive">declined</span>';
+                                } else {
+                                    statusCell.innerHTML = '<span class="badge badge-pending">pending</span>';
+                                }
+                            }
+                        } else {
+                            alert('Failed to update status');
+                        }
+                    } catch(_){
+                        alert('Network error');
+                    }
+                }
+                if (declineBtn) { await setStatus('declined'); return; }
+            });
+        }
+        const eventregViewClose = document.getElementById('eventreg-view-close');
+        if (eventregViewClose) {
+            eventregViewClose.addEventListener('click', function(){ closeModal('eventreg-view-modal'); });
+        }
+        const volregViewClose = document.getElementById('volreg-view-close');
+        if (volregViewClose) {
+            volregViewClose.addEventListener('click', function(){ closeModal('volreg-view-modal'); });
         }
 
         const dutyBack = document.getElementById('duty-back');
@@ -5358,7 +5906,8 @@ $stmt = null;
                     item.style.width = '100%';
                     item.style.textAlign = 'left';
                     const loc = (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') ? `${Number(u.lat).toFixed(6)}, ${Number(u.lng).toFixed(6)}` : '—';
-                    item.innerHTML = `<span><strong>${u.callsign || u.id}</strong><span style="color:#6b7280;margin-left:8px;font-size:12px;">${loc}</span></span><span class="badge ${String(u.status).toLowerCase().includes('respond') ? 'badge-active' : (String(u.status).toLowerCase().includes('need') ? 'badge-pending' : 'badge-inactive')}">${u.status}</span>`;
+                    const dur = (u.duration ? String(u.duration) : '—');
+                    item.innerHTML = `<span><strong>${u.callsign || u.id}</strong><span style="color:#6b7280;margin-left:8px;font-size:12px;">${loc}</span></span><span class="badge badge-inactive">${dur}</span>`;
                     item.addEventListener('click', function(){ updateUnitInfo(u); });
                     listEl.appendChild(item);
                 });
@@ -5368,20 +5917,21 @@ $stmt = null;
         function updateUnitInfo(u){
             try{
                 const uiName = document.getElementById('ui-name');
-                const uiStatus = document.getElementById('ui-status');
+                const uiDuration = document.getElementById('ui-duration');
+                const uiType = document.getElementById('ui-type');
                 const uiAssignment = document.getElementById('ui-assignment');
                 const uiLocation = document.getElementById('ui-location');
-                const uiSpeed = document.getElementById('ui-speed');
-                const uiBattery = document.getElementById('ui-battery');
                 const uiDistance = document.getElementById('ui-distance');
                 const uiLast = document.getElementById('ui-last');
                 if (uiName) uiName.textContent = u.callsign || u.id || '—';
-                if (uiStatus) { uiStatus.textContent = u.status || '—'; uiStatus.className = `badge ${String(u.status).toLowerCase().includes('respond') ? 'badge-active' : (String(u.status).toLowerCase().includes('need') ? 'badge-pending' : 'badge-inactive')}`; }
-                if (uiAssignment) uiAssignment.textContent = u.assignment || '—';
+                if (uiDuration) { uiDuration.textContent = u.duration || '—'; }
+                if (uiType) {
+                    const t = u.type || u.unit_type || (String(u.assignment_area || u.assignment || '').includes('Ronda') ? 'Ronda' : (String(u.assignment_area || u.assignment || '').includes('Mobile Patrol') ? 'Mobile Patrol' : '—'));
+                    uiType.textContent = t;
+                }
+                if (uiAssignment) uiAssignment.textContent = (u.assignment ?? u.assignment_area) || '—';
                 const loc = (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') ? `${Number(u.lat).toFixed(6)}, ${Number(u.lng).toFixed(6)}` : '—';
                 if (uiLocation) uiLocation.textContent = loc;
-                if (uiSpeed) uiSpeed.textContent = `${Number(u.speed || 0).toFixed(1)} km/h`;
-                if (uiBattery) uiBattery.textContent = `${Number(u.battery ?? 0)}%`;
                 if (uiDistance) uiDistance.textContent = `${Number(u.distance_today || 0).toFixed(1)} km`;
                 if (uiLast) uiLast.textContent = u.last_ping ? new Date(u.last_ping).toLocaleString() : '—';
             }catch(_){}
@@ -5424,13 +5974,93 @@ $stmt = null;
                     if (msg) { msg.textContent = ''; msg.style.color = ''; }
                 });
             }
+            async function ensureTurfLib(){
+                if (window.turf && turf.booleanPointInPolygon) return;
+                await new Promise(function(resolve){
+                    const s = document.createElement('script');
+                    s.src = 'https://unpkg.com/@turf/turf/turf.min.js';
+                    s.async = true;
+                    s.defer = true;
+                    s.onload = resolve;
+                    document.head.appendChild(s);
+                });
+            }
+            const zoneDefs = [
+                { name:'Zone 01', area:'R2 Medium Density', coords:[[121.0835,14.7082],[121.0850,14.7085],[121.0852,14.7075],[121.0838,14.7072],[121.0835,14.7082]] },
+                { name:'Zone 02', area:'C1/C2 Commercial', coords:[[121.0852,14.7075],[121.0868,14.7079],[121.0869,14.7067],[121.0853,14.7064],[121.0852,14.7075]] },
+                { name:'Zone 03', area:'Institutional', coords:[[121.0832,14.7068],[121.0848,14.7070],[121.0849,14.7058],[121.0833,14.7056],[121.0832,14.7068]] },
+                { name:'Zone 04', area:'Residential Housing', coords:[[121.0860,14.7058],[121.0876,14.7060],[121.0877,14.7048],[121.0861,14.7046],[121.0860,14.7058]] },
+                { name:'Zone 05', area:'R3 High Density', coords:[[121.0845,14.7049],[121.0862,14.7052],[121.0863,14.7042],[121.0846,14.7040],[121.0845,14.7049]] }
+            ];
+            let zonePolys = null;
+            async function determineZone(lng, lat){
+                await ensureTurfLib();
+                if (!zonePolys){
+                    zonePolys = zoneDefs.map(function(z){ return { name:z.name, area:z.area, poly: turf.polygon([z.coords]) }; });
+                }
+                const pt = [lng, lat];
+                for (let i=0;i<zonePolys.length;i++){
+                    if (turf.booleanPointInPolygon(pt, zonePolys[i].poly)) return zonePolys[i];
+                }
+                return null;
+            }
+            window.autoFillAssignmentFromLatLng = async function(){
+                const latEl = document.getElementById('latitude-input');
+                const lngEl = document.getElementById('longitude-input');
+                const assignEl = document.getElementById('assignment-input');
+                const lat = parseFloat(latEl ? latEl.value : '');
+                const lng = parseFloat(lngEl ? lngEl.value : '');
+                if (Number.isNaN(lat) || Number.isNaN(lng) || !assignEl) return;
+                const z = await determineZone(lng, lat);
+                if (z) {
+                    assignEl.value = z.name + ' - ' + z.area;
+                } else {
+                    assignEl.value = 'Unknown Zone - Area';
+                }
+            };
+            window.autoFillLatLng = async function(){
+                const latEl = document.getElementById('latitude-input');
+                const lngEl = document.getElementById('longitude-input');
+                const dateEl = document.getElementById('gps-date-input');
+                const timeEl = document.getElementById('gps-time-input');
+                if (!navigator.geolocation || !latEl || !lngEl) { await window.autoFillAssignmentFromLatLng(); return; }
+                try{
+                    await new Promise(function(resolve, reject){
+                        navigator.geolocation.getCurrentPosition(function(pos){
+                            const lat = pos.coords.latitude;
+                            const lng = pos.coords.longitude;
+                            latEl.value = String(lat.toFixed(6));
+                            lngEl.value = String(lng.toFixed(6));
+                            const now = new Date();
+                            if (dateEl && !dateEl.value) {
+                                const y = now.getFullYear();
+                                const m = String(now.getMonth()+1).padStart(2,'0');
+                                const d = String(now.getDate()).padStart(2,'0');
+                                dateEl.value = `${y}-${m}-${d}`;
+                            }
+                            if (timeEl && !timeEl.value) {
+                                const hh = String(now.getHours()).padStart(2,'0');
+                                const mm = String(now.getMinutes()).padStart(2,'0');
+                                timeEl.value = `${hh}:${mm}`;
+                            }
+                            resolve();
+                        }, function(){ resolve(); }, { enableHighAccuracy:true, timeout:5000, maximumAge:0 });
+                    });
+                }catch(_){}
+                await window.autoFillAssignmentFromLatLng();
+            };
+            const latEl2 = document.getElementById('latitude-input');
+            const lngEl2 = document.getElementById('longitude-input');
+            if (latEl2) latEl2.addEventListener('change', window.autoFillAssignmentFromLatLng);
+            if (lngEl2) lngEl2.addEventListener('change', window.autoFillAssignmentFromLatLng);
+            window.autoFillLatLng();
             createUnitForm.addEventListener('submit', async function(e){
                 e.preventDefault();
                 const unitId = document.getElementById('unit-id-input').value.trim();
                 const callsign = document.getElementById('callsign-input').value.trim();
                 const assignmentBase = document.getElementById('assignment-input').value.trim();
                 const unitType = document.getElementById('unit-type-input').value;
-                const status = document.getElementById('status-input').value;
+                const durationVal = (document.getElementById('duration-input')?.value || '').trim();
                 const latitude = parseFloat(document.getElementById('latitude-input').value);
                 const longitude = parseFloat(document.getElementById('longitude-input').value);
                 const dateVal = (document.getElementById('gps-date-input')?.value || '').trim();
@@ -5439,14 +6069,13 @@ $stmt = null;
                 const payload = {
                     unit_id: unitId,
                     callsign: callsign,
-                    assignment: `${assignmentBase} - ${unitType}`,
+                    assignment_area: assignmentBase,
+                    unit_type: unitType,
+                    duration: durationVal,
                     latitude: latitude,
-                    longitude: longitude,
-                    status: status,
-                    speed: 0,
-                    battery: 100,
-                    distance_today: 0,
-                    last_ping: (dateVal && timeVal) ? `${dateVal} ${timeVal}` : undefined
+                    longtitude: longitude,
+                    date: dateVal || undefined,
+                    time: timeVal || undefined
                 };
                 try{
                     const res = await fetch('api/gps_save.php', {
@@ -5470,7 +6099,7 @@ $stmt = null;
                         if (lngEl) lngEl.value = '121.088000';
                         if (dateEl) dateEl.value = '';
                         if (timeEl) timeEl.value = '';
-                        // loadGPSUnits();
+                        loadGPSUnits();
     
     function loadGoogleMapsAPI(key){
         return new Promise(function(resolve, reject){
@@ -5546,6 +6175,7 @@ $stmt = null;
             }
 
             const map = L.map('gps-leaflet-map');
+            gpsMapCtx = { type: 'leaflet', map: map, markers: [] };
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO', maxZoom: 19 }).addTo(map);
             
     const commonwealthCoords = [[121.083089,14.709909],[121.0827319,14.7086933],[121.082621,14.7083025],[121.082477,14.7078641],[121.0823004,14.7073802],[121.0821198,14.7069657],[121.0818147,14.7059143],[121.0815905,14.7051927],[121.0815014,14.7048893],[121.0813675,14.704569],[121.0812002,14.7041845],[121.080837,14.7041825],[121.0795816,14.704164],[121.0777782,14.7041727],[121.0771962,14.7041883],[121.0770465,14.7040385],[121.0767196,14.7038143],[121.0764196,14.7036652],[121.0762954,14.7036316],[121.0756248,14.7034504],[121.0753926,14.703369],[121.0751716,14.7032915],[121.0749029,14.7031676],[121.0746963,14.7030288],[121.0741843,14.7030437],[121.0742259,14.7028376],[121.0742487,14.7027871],[121.0740021,14.7025363],[121.0737081,14.702249],[121.0737537,14.7021699],[121.0734353,14.7017435],[121.0728592,14.7006421],[121.0728041,14.7002749],[121.0727533,14.6999815],[121.0727274,14.699677],[121.0726916,14.6994613],[121.0723715,14.6986078],[121.07174,14.696937],[121.0714422,14.6962263],[121.0709099,14.6948733],[121.0701216,14.6936084],[121.0699625,14.6934091],[121.0696031,14.6928864],[121.075253,14.6933259],[121.0773019,14.6932403],[121.0792747,14.6932472],[121.0807457,14.693322],[121.0860302,14.6932916],[121.0873239,14.6932842],[121.0928632,14.6932789],[121.0928967,14.693922],[121.0929047,14.6949282],[121.0945421,14.6965876],[121.0945856,14.6966323],[121.0939586,14.6971992],[121.0923053,14.6987895],[121.0913908,14.6997168],[121.0910747,14.6999553],[121.0908265,14.700101],[121.0905641,14.7002206],[121.0901125,14.700319],[121.089683,14.7003204],[121.0893063,14.7002606],[121.0888875,14.7001514],[121.0882377,14.6999812],[121.0878347,14.6998756],[121.0877497,14.6999409],[121.0878517,14.7000567],[121.0879446,14.7001603],[121.0880872,14.7003187],[121.0884299,14.7007282],[121.0885158,14.7008171],[121.0886613,14.7008878],[121.0891231,14.7010617],[121.0892205,14.7011234],[121.0892798,14.701238],[121.0893023,14.7013282],[121.0893156,14.7014093],[121.0893191,14.7014306],[121.089328,14.7015229],[121.089351,14.7017641],[121.089355,14.7018396],[121.0893579,14.7019005],[121.0893599,14.7019963],[121.0893598,14.7020426],[121.0893603,14.7021353],[121.089362,14.7022724],[121.0893621,14.7023804],[121.0893489,14.7025146],[121.0893315,14.7025806],[121.0892668,14.7027123],[121.0891752,14.7028696],[121.089117,14.7029694],[121.0890545,14.7030846],[121.0889751,14.7032301],[121.0889519,14.7032712],[121.088917,14.7033333],[121.0888896,14.7033806],[121.088729,14.7036547],[121.0886155,14.7038624],[121.0885581,14.7039989],[121.0885088,14.704127],[121.0884541,14.7043004],[121.0884169,14.7044326],[121.0883021,14.7049157],[121.08822,14.7052547],[121.0881398,14.7056096],[121.0880922,14.7058778],[121.0880932,14.7060099],[121.0881,14.7060914],[121.0881116,14.7061506],[121.0882223,14.7063197],[121.0883329,14.7064466],[121.0887232,14.7068043],[121.0888375,14.7069638],[121.0889178,14.7071079],[121.0889315,14.7071324],[121.0890059,14.7072841],[121.0890453,14.7073643],[121.0890824,14.7074385],[121.0891248,14.707481],[121.089173,14.7075099],[121.0892284,14.7075231],[121.0893762,14.7075281],[121.0895685,14.7075577],[121.0897098,14.7076287],[121.0898469,14.7077221],[121.0899289,14.7077883],[121.0901239,14.7079944],[121.0901656,14.7080543],[121.0902204,14.7081408],[121.0903137,14.7082944],[121.090364,14.7083773],[121.0904348,14.7085047],[121.090456,14.7085531],[121.0906045,14.7088503],[121.0906691,14.7089761],[121.0907357,14.7091702],[121.0907465,14.7092711],[121.0907371,14.7096367],[121.0907377,14.7097015],[121.0907306,14.709957],[121.0907131,14.710531],[121.0907082,14.7106922],[121.0905796,14.7108739],[121.0904498,14.7110573],[121.0901977,14.7114135],[121.090023,14.7117509],[121.0898332,14.7121533],[121.0871119,14.7112189],[121.0869747,14.7113735],[121.0868004,14.7113584],[121.086672,14.7113318],[121.0862659,14.7112029],[121.0859762,14.7110311],[121.0856651,14.7109429],[121.0856973,14.7110339],[121.0849946,14.7105901],[121.0848906,14.7103196],[121.0841055,14.710054],[121.083089,14.709909]];
@@ -5694,6 +6324,14 @@ $stmt = null;
                 const html = '<div style="width:24px;height:24px;border-radius:50%;background:'+c+';display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.3)"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4" fill="#ffffff"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/></svg></div>';
                 return L.divIcon({ html: html, iconSize: [24,24], iconAnchor: [12,12], className: '' });
             }
+             function createRondaIcon(c){
+                const html = '<div style="width:24px;height:24px;border-radius:50%;background:#ffffff;border:2px solid '+c+';display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.3)"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="6" r="2.4" fill="#111827"/><path d="M12 8.8l-1.5 2.6-2.2.5M12 8.8l1.8 1.8 2.2.5M10.5 11.4l1.5 2.8M13.8 11.1l-1.8 3.1M12 14.5l-1.6 3.7M12 14.5l1.6 3.7" stroke="#111827" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></div>';
+                return L.divIcon({ html: html, iconSize: [24,24], iconAnchor: [12,12], className: '' });
+            }
+            function createMobileIcon(c){
+                const html = '<div style="width:24px;height:24px;border-radius:50%;background:#ffffff;border:2px solid '+c+';display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.3)"><svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="8" width="14" height="7" rx="1.5" fill="#111827"/><rect x="12" y="9" width="5" height="3" fill="#ffffff"/><circle cx="8" cy="16" r="1.6" fill="#ffffff"/><circle cx="15" cy="16" r="1.6" fill="#ffffff"/></svg></div>';
+                return L.divIcon({ html: html, iconSize: [24,24], iconAnchor: [12,12], className: '' });
+            }
             async function loadRoadNetwork(){
                 if (roadsLines.length) return;
                 const q = `[out:json][timeout:25];way[highway](${south},${west},${north},${east});out geom;`;
@@ -5763,12 +6401,32 @@ $stmt = null;
             }
             map.on('click', async function(e){
                 const pt = [e.latlng.lng, e.latlng.lat];
-                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
-                    const col = nearestColor(e.latlng.lng, e.latlng.lat);
-                    const m = L.marker(e.latlng, { icon: createResidentIcon(col) }).addTo(pinLayer);
-                    m.bindTooltip('Lat: ' + e.latlng.lat.toFixed(6) + ', Lon: ' + e.latlng.lng.toFixed(6), { permanent: false, direction: 'top' });
-                    await addStreetline(e.latlng.lng, e.latlng.lat);
-                }
+                if (!turf.booleanPointInPolygon(pt, commonwealthPoly)) return;
+                const col = nearestColor(e.latlng.lng, e.latlng.lat);
+                const html = '<div style="min-width:240px;padding:6px 4px;"><div style="font-weight:600;margin-bottom:8px;">Select Unit Type</div><div style="display:flex;gap:8px;align-items:center;justify-content:flex-start;"><button class="secondary-button" id="map-select-ronda"><span style="display:inline-flex;align-items:center;gap:6px;"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.4" fill="#111827"></circle><path d="M12 8.8l-1.5 2.6-2.2.5M12 8.8l1.8 1.8 2.2.5M10.5 11.4l1.5 2.8M13.8 11.1l-1.8 3.1M12 14.5l-1.6 3.7M12 14.5l1.6 3.7" stroke="#111827" stroke-width="1.8" stroke-linecap="round" fill="none"></path></svg>Ronda</span></button><button class="primary-button" id="map-select-mobile"><span style="display:inline-flex;align-items:center;gap:6px;"><svg width="18" height="18" viewBox="0 0 24 24"><rect x="4" y="8" width="14" height="7" rx="1.5" fill="#111827"></rect><rect x="12" y="9" width="5" height="3" fill="#ffffff"></rect><circle cx="8" cy="16" r="1.6" fill="#ffffff"></circle><circle cx="15" cy="16" r="1.6" fill="#ffffff"></circle></svg>Mobile Patrol</span></button></div></div>';
+                L.popup({ closeOnClick: true, autoClose: true }).setLatLng(e.latlng).setContent(html).openOn(map);
+                setTimeout(function(){
+                    const r = document.getElementById('map-select-ronda');
+                    const mbtn = document.getElementById('map-select-mobile');
+                    async function choose(type){
+                        const latEl = document.getElementById('latitude-input');
+                        const lngEl = document.getElementById('longitude-input');
+                        const typeEl = document.getElementById('unit-type-input');
+                        if (latEl) latEl.value = String(e.latlng.lat.toFixed(6));
+                        if (lngEl) lngEl.value = String(e.latlng.lng.toFixed(6));
+                        if (typeEl) typeEl.value = type;
+                        if (typeof window.autoFillAssignmentFromLatLng === 'function') { await window.autoFillAssignmentFromLatLng(); }
+                        const icon = type === 'Ronda' ? createRondaIcon(col) : createMobileIcon(col);
+                        const marker = L.marker(e.latlng, { icon: icon }).addTo(pinLayer);
+                        marker.bindTooltip('Lat: ' + e.latlng.lat.toFixed(6) + ', Lon: ' + e.latlng.lng.toFixed(6), { permanent: false, direction: 'top' });
+                        await addStreetline(e.latlng.lng, e.latlng.lat);
+                        const form = document.getElementById('create-unit-form');
+                        if (form) { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+                        map.closePopup();
+                    }
+                    if (r) r.addEventListener('click', function(){ choose('Ronda'); });
+                    if (mbtn) mbtn.addEventListener('click', function(){ choose('Mobile Patrol'); });
+                }, 0);
             });
             function addPin(lng, lat, label){
                 const pt = [lng, lat];
@@ -6093,6 +6751,14 @@ $stmt = null;
             const ring = bg || '#2563eb';
             return "<div style='width:28px;height:28px;border-radius:50%;background:"+outer+";display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+ring+"'><svg width='16' height='16' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='8' r='4' fill='#ffc107'/><path d='M4 20c0-4 4-6 8-6s8 2 8 6' fill='none' stroke='#ffc107' stroke-width='2' stroke-linecap='round'/></svg></div>";
         }
+        function createRondaIconHtml(bg){
+            var ring = bg || '#2563eb';
+            return "<div style='width:28px;height:28px;border-radius:50%;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+ring+"'><svg width='18' height='18' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='6' r='2.4' fill='#111827'></circle><path d='M12 8.8l-1.5 2.6-2.2.5M12 8.8l1.8 1.8 2.2.5M10.5 11.4l1.5 2.8M13.8 11.1l-1.8 3.1M12 14.5l-1.6 3.7M12 14.5l1.6 3.7' stroke='#111827' stroke-width='1.8' stroke-linecap='round' fill='none'></path></svg></div>";
+        }
+        function createMobileIconHtml(bg){
+            var ring = bg || '#2563eb';
+            return "<div style='width:28px;height:28px;border-radius:50%;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+ring+"'><svg width='18' height='18' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><rect x='4' y='8' width='14' height='7' rx='1.5' fill='#111827'></rect><rect x='12' y='9' width='5' height='3' fill='#ffffff'></rect><circle cx='8' cy='16' r='1.6' fill='#111827'></circle><circle cx='15' cy='16' r='1.6' fill='#111827'></circle></svg></div>";
+        }
         function ensureStatusLegend(){
             if (!gpsMapCtx || !gpsMapCtx.map) return;
             if (gpsMapCtx.type === 'leaflet') {
@@ -6133,12 +6799,13 @@ $stmt = null;
                 });
                 gpsMapCtx.markers = [];
             }
-            ensureStatusLegend();
+            // GPS Status legend removed per request
             items.forEach(function(u){
                 if (gpsMapCtx.type === 'leaflet') {
                     if (typeof L === 'undefined') return;
                     var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
-                    var html = personIconHTML(zoneColor);
+                    var t = (u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol')));
+                    var html = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
                     var icon = L.divIcon({ className:'poi-icon', html: html, iconSize:[28,28], iconAnchor:[14,14] });
                     if (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
                         var m = L.marker([Number(u.lat), Number(u.lng)], { icon: icon, title: u.callsign || String(u.id || '') }).addTo(gpsMapCtx.map);
@@ -6153,7 +6820,8 @@ $stmt = null;
                     if (gpsMapCtx.AdvancedMarkerElement && typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
                         var container = document.createElement('div');
                         var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
-                        container.innerHTML = personIconHTML(zoneColor);
+                        var t = (u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol')));
+                        container.innerHTML = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
                         var marker = new gpsMapCtx.AdvancedMarkerElement({ map: gpsMapCtx.map, position: { lat: Number(u.lat), lng: Number(u.lng) }, content: container, title: u.callsign || String(u.id || '') });
                         marker.addListener('click', function(){
                             updateUnitInfo(u);
@@ -6802,6 +7470,7 @@ $stmt = null;
 
         const complaintTable = document.getElementById('complaint-table');
         if (complaintTable) {
+            updateOnlineComplaintKpis();
             complaintTable.addEventListener('click', function(e){
                 const viewBtn = e.target.closest('.complaint-view-btn');
                 const row = e.target.closest('.complaint-row');
@@ -6837,9 +7506,11 @@ $stmt = null;
                 }
                 if (phWrap && phEl && phDl) {
                     if (photo) {
+                        const purl = resolveUploadsUrl(photo);
                         phWrap.style.display = 'block';
-                        phEl.src = photo;
-                        phDl.href = photo;
+                        phEl.src = purl;
+                        phDl.href = purl;
+                        phEl.onerror = function(){ phWrap.style.display='none'; phEl.src=''; phDl.href='#'; };
                     } else {
                         phWrap.style.display = 'none';
                         phEl.src = '';
@@ -6848,12 +7519,16 @@ $stmt = null;
                 }
                 if (vdWrap && vdEl && vdDl) {
                     if (video) {
+                        const vurl = resolveUploadsUrl(video);
                         vdWrap.style.display = 'block';
-                        vdEl.src = video;
-                        vdDl.href = video;
+                        vdEl.src = vurl;
+                        vdEl.load();
+                        vdDl.href = vurl;
+                        vdEl.onerror = function(){ vdWrap.style.display='none'; vdEl.removeAttribute('src'); vdEl.load(); vdDl.href='#'; };
                     } else {
                         vdWrap.style.display = 'none';
                         vdEl.src = '';
+                        vdEl.load();
                         vdDl.href = '#';
                     }
                 }
@@ -6863,6 +7538,10 @@ $stmt = null;
         const complaintViewClose = document.getElementById('complaint-view-close');
         if (complaintViewClose) {
             complaintViewClose.addEventListener('click', function(){ closeModal('complaint-view-modal'); });
+        }
+        const complaintStatusViewClose = document.getElementById('complaint-status-view-close');
+        if (complaintStatusViewClose) {
+            complaintStatusViewClose.addEventListener('click', function(){ closeModal('complaint-status-view-modal'); });
         }
 
         const statusBack = document.getElementById('status-back');
@@ -6888,7 +7567,69 @@ $stmt = null;
 
             statusTable.addEventListener('click', function(e){
                 const row = e.target.closest('.complaint-status-row');
+                const viewBtn = e.target.closest('.complaint-view-btn');
                 const resolveBtn = e.target.closest('.status-resolve-btn');
+                if (viewBtn && row) {
+                    const name = row.getAttribute('data-resident');
+                    const issue = row.getAttribute('data-issue');
+                    const cat = row.getAttribute('data-cat');
+                    const loc = row.getAttribute('data-loc');
+                    const at = row.getAttribute('data-at');
+                    const status = row.getAttribute('data-status');
+                    const photo = row.getAttribute('data-photo') || '';
+                    const video = row.getAttribute('data-video') || '';
+                    const resEl = document.getElementById('csv-resident');
+                    const issueEl = document.getElementById('csv-issue');
+                    const catEl = document.getElementById('csv-category');
+                    const locEl = document.getElementById('csv-location');
+                    const atEl = document.getElementById('csv-at');
+                    const stEl = document.getElementById('csv-status');
+                    const phWrap = document.getElementById('csv-photo-wrap');
+                    const phEl = document.getElementById('csv-photo');
+                    const phDl = document.getElementById('csv-photo-download');
+                    const vdWrap = document.getElementById('csv-video-wrap');
+                    const vdEl = document.getElementById('csv-video');
+                    const vdDl = document.getElementById('csv-video-download');
+                    if (resEl) resEl.textContent = name || '—';
+                    if (issueEl) issueEl.textContent = issue || '—';
+                    if (catEl) catEl.textContent = cat || '—';
+                    if (locEl) locEl.textContent = loc || '—';
+                    if (atEl) atEl.textContent = at || '—';
+                    if (stEl) {
+                        stEl.textContent = status || 'Pending';
+                        stEl.className = status === 'Resolved' ? 'badge badge-resolved' : 'badge badge-pending';
+                    }
+                    if (phWrap && phEl && phDl) {
+                        if (photo) {
+                            const purl = resolveUploadsUrl(photo);
+                            phWrap.style.display = 'block';
+                            phEl.src = purl;
+                            phDl.href = purl;
+                            phEl.onerror = function(){ phWrap.style.display='none'; phEl.src=''; phDl.href='#'; };
+                        } else {
+                            phWrap.style.display = 'none';
+                            phEl.src = '';
+                            phDl.href = '#';
+                        }
+                    }
+                    if (vdWrap && vdEl && vdDl) {
+                        if (video) {
+                            const vurl = resolveUploadsUrl(video);
+                            vdWrap.style.display = 'block';
+                            vdEl.src = vurl;
+                            vdEl.load();
+                            vdDl.href = vurl;
+                            vdEl.onerror = function(){ vdWrap.style.display='none'; vdEl.removeAttribute('src'); vdEl.load(); vdDl.href='#'; };
+                        } else {
+                            vdWrap.style.display = 'none';
+                            vdEl.src = '';
+                            vdEl.load();
+                            vdDl.href = '#';
+                        }
+                    }
+                    openModal('complaint-status-view-modal');
+                    return;
+                }
                 if (resolveBtn && row) {
                     const rid = row.getAttribute('data-id');
                     resolveBtn.disabled = true;
@@ -6909,6 +7650,7 @@ $stmt = null;
                                 const oc = onlineRow.querySelector('td:nth-child(6)');
                                 if (oc) oc.innerHTML = '<span class="badge badge-resolved">Resolved</span>';
                             }
+                            updateOnlineComplaintKpis();
                             const panel = document.getElementById('status-details');
                             if (panel) {
                                 const name = row.getAttribute('data-resident');

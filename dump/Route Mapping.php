@@ -1273,9 +1273,7 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
 ===================================================== */
 const map = L.map('route-map', {
     center: [14.7005, 121.0865],
-    zoom: 16,
-    minZoom: 15,
-    maxZoom: 19
+    zoom: 10
 });
 
 /* =====================================================
@@ -1285,7 +1283,7 @@ L.tileLayer(
     'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     {
         attribution:'&copy; OpenStreetMap & CARTO',
-        maxZoom:19
+        maxZoom:10
     }
 ).addTo(map);
 

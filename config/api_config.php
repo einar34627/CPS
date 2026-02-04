@@ -1,0 +1,2 @@
+<?php
+$API_KEY = 'REPLACE_WITH_SECURE_KEY';

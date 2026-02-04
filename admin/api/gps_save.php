@@ -27,14 +27,18 @@ if (!$data) {
 try {
     $unitId = $data['unit_id'] ?? '';
     $callsign = $data['callsign'] ?? '';
-    $assignment = $data['assignment'] ?? '';
-    $status = $data['status'] ?? 'On Patrol';
+    $assignmentArea = $data['assignment_area'] ?? ($data['assignment'] ?? '');
+    $unitType = $data['unit_type'] ?? null;
+    $duration = $data['duration'] ?? null;
     $latitude = floatval($data['latitude'] ?? 0);
-    $longitude = floatval($data['longitude'] ?? 0);
+    $longtitude = isset($data['longtitude']) ? floatval($data['longtitude']) : null;
+    $longitude = isset($data['longitude']) ? floatval($data['longitude']) : ($longtitude ?? 0);
+    $dateOnly = $data['date'] ?? null;
+    $timeOnly = $data['time'] ?? null;
     $speed = floatval($data['speed'] ?? 0);
     $battery = intval($data['battery'] ?? 100);
     $distanceToday = floatval($data['distance_today'] ?? 0);
-    $lastPing = $data['last_ping'] ?? date('Y-m-d H:i:s');
+    $lastPing = ($dateOnly && $timeOnly) ? ($dateOnly . ' ' . $timeOnly) : ($data['last_ping'] ?? date('Y-m-d H:i:s'));
     $isEdit = isset($data['editing_unit_id']) && $data['editing_unit_id'] !== '';
 
     if (empty($unitId) || empty($callsign)) {
@@ -46,13 +50,46 @@ try {
         throw new Exception('Invalid coordinates');
     }
 
-    // Clamp battery between 0-100
-    $battery = max(0, min(100, $battery));
+    // Battery removed
 
     // Convert last_ping to MySQL datetime format
     if (is_string($lastPing)) {
         $lastPingDate = new DateTime($lastPing);
         $lastPing = $lastPingDate->format('Y-m-d H:i:s');
+    }
+
+    // Ensure new columns exist
+    try {
+        $cols = [
+            ['name' => 'assignment_area', 'def' => 'VARCHAR(255) DEFAULT NULL'],
+            ['name' => 'unit_type', 'def' => 'VARCHAR(64) DEFAULT NULL'],
+            ['name' => 'duration', 'def' => 'VARCHAR(64) DEFAULT NULL'],
+            ['name' => 'longtitude', 'def' => 'DECIMAL(10,6) DEFAULT NULL'],
+            ['name' => 'date', 'def' => 'DATE DEFAULT NULL'],
+            ['name' => 'time', 'def' => 'TIME DEFAULT NULL']
+        ];
+        foreach ($cols as $c) {
+            $chk = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
+            $chk->execute([$c['name']]);
+            if (!$chk->fetch()) {
+                $pdo->exec("ALTER TABLE gps_units ADD COLUMN " . $c['name'] . " " . $c['def']);
+            }
+        }
+        // Also ensure is_active column exists (used by listing)
+        $chkIA = $pdo->query("SHOW COLUMNS FROM gps_units LIKE 'is_active'");
+        if (!$chkIA->fetch()) {
+            $pdo->exec("ALTER TABLE gps_units ADD COLUMN is_active TINYINT(1) DEFAULT 1");
+        }
+        // Drop speed and battery columns if present
+        foreach (['speed', 'battery'] as $dropCol) {
+            $chkDrop = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
+            $chkDrop->execute([$dropCol]);
+            if ($chkDrop->fetch()) {
+                $pdo->exec("ALTER TABLE gps_units DROP COLUMN " . $dropCol);
+            }
+        }
+    } catch (Exception $e) {
+        // Ignore schema adjustment errors
     }
 
     if ($isEdit && isset($data['editing_unit_id'])) {
@@ -70,13 +107,15 @@ try {
         
         $stmt = $pdo->prepare("
             UPDATE gps_units 
-            SET unit_id = ?, callsign = ?, assignment = ?, latitude = ?, longitude = ?, 
-                status = ?, speed = ?, battery = ?, distance_today = ?, last_ping = ?
+            SET unit_id = ?, callsign = ?, assignment = ?, assignment_area = ?, unit_type = ?, duration = ?, 
+                latitude = ?, longitude = ?, longtitude = ?, 
+                distance_today = ?, last_ping = ?, `date` = ?, `time` = ?
             WHERE unit_id = ?
         ");
         $stmt->execute([
-            $unitId, $callsign, $assignment, $latitude, $longitude,
-            $status, $speed, $battery, $distanceToday, $lastPing, $editingUnitId
+            $unitId, $callsign, ($assignmentArea ?: ''), $assignmentArea, $unitType, $duration,
+            $latitude, $longitude, $longtitude,
+            $distanceToday, $lastPing, $dateOnly, $timeOnly, $editingUnitId
         ]);
     } else {
         // Insert new unit
@@ -88,12 +127,12 @@ try {
         
         $stmt = $pdo->prepare("
             INSERT INTO gps_units 
-            (unit_id, callsign, assignment, latitude, longitude, status, speed, battery, distance_today, last_ping)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (unit_id, callsign, assignment, assignment_area, unit_type, duration, latitude, longitude, longtitude, distance_today, last_ping, `date`, `time`, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         ");
         $stmt->execute([
-            $unitId, $callsign, $assignment, $latitude, $longitude,
-            $status, $speed, $battery, $distanceToday, $lastPing
+            $unitId, $callsign, ($assignmentArea ?: ''), $assignmentArea, $unitType, $duration,
+            $latitude, $longitude, $longtitude, $distanceToday, $lastPing, $dateOnly, $timeOnly
         ]);
     }
 

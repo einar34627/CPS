@@ -658,19 +658,45 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
                 <div class="stat-hint">automatic when new route is saved</div>
             </div>
         </div>
-           <div class="row">
-            <div id="route-map">
-            </div>
-                <div id="search-info" class="alert" style="display:none;"></div>
-            </div>
-            <div class="map-tools " style="margin-top:35px;">
-                <input type="text" class="input" id="search-query" placeholder="Search place or address..." style="flex:1; min-width:220px;">
-                <button class="btn btn-outline" type="button" id="search-go"><i class='bx bx-search'></i>Search</button>
-                <button class="btn btn-outline" id="toggle-traffic"> <i class='bx bx-traffic-cone'></i> Traffic </button>
-                <button class="btn btn-outline" type="button" id="finish-route"><i class='bx bx-current-location'></i>Fit to Route</button>
-                <button class="btn btn-outline" type="button" id="toggle-zoning"><i class='bx bx-map'></i>Zoning Map</button>
-                <button class="btn btn-outline" type="button" id="fit-commonwealth"><i class='bx bx-map-pin'></i>Commonwealth</button>
-                <button class="btn btn-outline" type="button" id="toggle-color"><i class='bx bx-palette'></i>Color Map</button>
+           <div class="map-layout" style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start;">
+                <div>
+                    <div id="route-map"></div>
+                    <div id="search-info" class="alert" style="display:none;"></div>
+                    <div class="map-tools" style="margin-top:12px;">
+                        <input type="text" class="input" id="search-query" placeholder="Search place or address..." style="flex:1; min-width:220px;">
+                        <button class="btn btn-outline" type="button" id="search-go"><i class='bx bx-search'></i>Search</button>
+                        <button class="btn btn-outline" id="toggle-traffic"> <i class='bx bx-traffic-cone'></i> Traffic </button>
+                        <button class="btn btn-outline" type="button" id="finish-route"><i class='bx bx-current-location'></i>Fit to Route</button>
+                        <button class="btn btn-outline" type="button" id="toggle-zoning"><i class='bx bx-map'></i>Zoning Map</button>
+                        <button class="btn btn-outline" type="button" id="fit-commonwealth"><i class='bx bx-map-pin'></i>Commonwealth</button>
+                        <button class="btn btn-outline" type="button" id="toggle-color"><i class='bx bx-palette'></i>Color Map</button>
+                    </div>
+                </div>
+                <div>
+                    <div class="legend">
+                        <div style="background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2);">
+                            <b>Map Legend</b><br>
+                            <span style="color:#dc2626;">━━━</span> Commonwealth Boundary<br>
+                            <span style="color:#2563eb;">━━━</span> Commonwealth Ave<br>
+                            <span style="color:#1d4ed8;">━━━</span> Patrol Route<br>
+                            <span style="color:#dc2626;">●</span> High-Risk Crime Area<br>
+                            <span style="color:#f59e0b;">●</span> Medium-Risk Crime Area<br>
+                        </div>
+                    </div>
+                    <div class="legend" style="margin-top:16px;">
+                        <div style="background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2);">
+                            <b>Zoning Zones</b><br>
+                            <div style="margin-top:4px;">
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#fef08a;"></span> R-2 Medium Density<br>
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#fbbf24;"></span> R-3 High Density<br>
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#ec4899;"></span> C-1/C-2 Commercial<br>
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#6366f1;"></span> Institutional<br>
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#a78bfa;"></span> Socialized Housing<br>
+                                <span style="display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000; background:#8b5cf6;"></span> Special Urban Dev't<br>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
            
 
@@ -723,9 +749,10 @@ function initializeMapApp() {
     const routes = <?php echo $routesForJs; ?>;
     const map = L.map('route-map', {
         center: [14.7005, 121.0865],
-        zoom: 15,
+        zoom: 10,
         minZoom: 14,
-        maxZoom: 19
+        maxZoom: 19,
+        zoomControl: false
     });
     // --- Live Traffic Layer (TomTom if key present, else fallback) ---
     const tomtomKey = 'MP8VA1V0iQN1fE0yZmyUmxQE7vfE04YK';
@@ -1284,38 +1311,7 @@ document.getElementById('toggle-zoning').addEventListener('click', function() {
 });
 
 
-// --- Update Legend ---
-const legend = L.control({ position:'bottomright' });
-legend.onAdd = () => {
-    const div = L.DomUtil.create('div', 'legend');
-    
-    // Inline CSS para sa malinis na itsura ng mga color boxes
-    const boxStyle = "display:inline-block; width:12px; height:12px; margin-right:5px; border:1px solid #000;";
-
-    div.innerHTML = `
-        <div style="background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2);">
-            <b>Map Legend</b><br>
-            <span style="color:#dc2626;">━━━</span> Commonwealth Boundary<br>
-            <span style="color:#2563eb;">━━━</span> Commonwealth Ave<br>
-            <span style="color:#1d4ed8;">━━━</span> Patrol Route<br>
-            <span style="color:#dc2626;">●</span> High-Risk Crime Area<br>
-            <span style="color:#f59e0b;">●</span> Medium-Risk Crime Area<br>
-            <hr style="margin: 5px 0;">
-            <b>Zoning Zones</b><br>
-            <div style="margin-top:4px;">
-                <span style="${boxStyle} background:#fef08a;"></span> R-2 Medium Density<br>
-                <span style="${boxStyle} background:#fbbf24;"></span> R-3 High Density<br>
-                <span style="${boxStyle} background:#ec4899;"></span> C-1/C-2 Commercial<br>
-                <span style="${boxStyle} background:#6366f1;"></span> Institutional<br>
-                <span style="${boxStyle} background:#a78bfa;"></span> Socialized Housing<br>
-                <span style="${boxStyle} background:#8b5cf6;"></span> Special Urban Dev't<br>
-            </div>
-        </div>
-    `;
-    return div;
-};
-
-legend.addTo(map);
+// External legend panels moved outside the map
 }
 
 </script>
