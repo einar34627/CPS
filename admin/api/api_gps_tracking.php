@@ -1,6 +1,6 @@
 <?php
 // api_gps_tracking.php
-// GPS Tracking API - For map integration
+// GPS Tracking API - For map integration - UPDATED FOR DOMAIN
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -33,6 +33,27 @@ header('Content-Type: application/json');
 // Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
+}
+
+// Function to get current domain URL
+function getBaseUrl() {
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443 ? "https://" : "http://";
+    $domain = $_SERVER['HTTP_HOST'];
+    // Remove port if present
+    $domain = strtok($domain, ':');
+    return $protocol . $domain;
+}
+
+// Function to get full API URL
+function getApiUrl($path = '') {
+    $baseUrl = getBaseUrl();
+    $scriptPath = dirname($_SERVER['SCRIPT_NAME']);
+    $fullPath = rtrim($baseUrl . $scriptPath, '/') . '/';
+    
+    if ($path) {
+        return $fullPath . ltrim($path, '/');
+    }
+    return $fullPath;
 }
 
 // SIMPLIFIED DATABASE SETUP - No complex schema migrations
@@ -76,7 +97,7 @@ function setupDatabaseTables($pdo) {
             INDEX idx_user_id (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         
-        // 3. Create gps_units table
+        // 3. Create gps_units table - UPDATED TO MATCH YOUR EXISTING STRUCTURE
         $pdo->exec("CREATE TABLE gps_units (
             id INT AUTO_INCREMENT PRIMARY KEY,
             unit_id VARCHAR(50) UNIQUE NOT NULL,
@@ -92,6 +113,11 @@ function setupDatabaseTables($pdo) {
             is_active TINYINT(1) DEFAULT 1,
             created_by INT DEFAULT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            assignment_area VARCHAR(255) DEFAULT NULL,
+            unit_type VARCHAR(64) DEFAULT NULL,
+            duration VARCHAR(64) DEFAULT NULL,
+            date DATE DEFAULT NULL,
+            time TIME DEFAULT NULL,
             INDEX idx_unit_id (unit_id),
             INDEX idx_status (status)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
@@ -187,7 +213,7 @@ function handleApiRequest($pdo) {
         echo json_encode([
             'error' => 'API key required', 
             'hint' => 'Provide X-API-Key header or api_key parameter',
-            'example' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
+            'example' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
             'special_endpoints' => 'For testing without API key: action=test, action=init, action=generate_key'
         ]);
         return;
@@ -350,12 +376,13 @@ function handleInitDatabase($pdo) {
             $stmt->execute($key);
         }
         
-        // Create sample GPS units
+        // Create sample GPS units matching your screenshot
         $sampleUnits = [
-            ['TANOD-001', 'Alpha Unit', 'Patrol Area 1', 'Patrolling', 14.6970, 121.0880, 25.5, 85],
-            ['TANOD-002', 'Bravo Unit', 'Patrol Area 2', 'Stationary', 14.6980, 121.0890, 0, 90],
-            ['TANOD-003', 'Charlie Unit', 'Barangay Hall', 'Responding', 14.6960, 121.0870, 40.2, 75],
-            ['TANOD-004', 'Delta Unit', 'Market Area', 'Patrolling', 14.6950, 121.0900, 30.1, 80]
+            ['UNIT-1', 'Alpha One', 'Zone 1 - Brahms Street', 'On Patrol', 14.700739, 121.078386, 25.5, 85],
+            ['UNIT-2', 'Alpha Two', 'Zone 1 - Barangay Commonwealth', 'On Patrol', 14.700402, 121.087259, 30.2, 90],
+            ['UNIT-3', 'Alpha Three', 'Main Road - Mobile Patrol', 'On Patrol', 14.709138, 121.089179, 40.1, 75],
+            ['UNIT-4', 'Alpha Four', 'Zone 3 - Main Road 2', 'On Patrol', 14.697123, 121.079849, 35.5, 80],
+            ['UNIT-5', 'Alpha Eight', 'Zone 3 - Katuparan street', 'On Patrol', 14.696583, 121.090101, 28.3, 88]
         ];
         
         foreach ($sampleUnits as $unit) {
@@ -374,9 +401,9 @@ function handleInitDatabase($pdo) {
                 'test_key_456' => 'TANOD role'
             ],
             'test_endpoints' => [
-                'Get all units' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
-                'Test endpoint' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?action=test',
-                'Generate new key' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?action=generate_key&user_id=1'
+                'Get all units' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
+                'Test endpoint' => getApiUrl() . 'api_gps_tracking.php?action=test',
+                'Generate new key' => getApiUrl() . 'api_gps_tracking.php?action=generate_key&user_id=1'
             ]
         ]);
         
@@ -446,7 +473,7 @@ function handleGenerateKey($pdo) {
                 'user_id' => $userId,
                 'scope' => $scope,
                 'warning' => 'Store this key securely!',
-                'usage_example' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?api_key=' . urlencode($apiKey) . '&action=get_units',
+                'usage_example' => getApiUrl() . 'api_gps_tracking.php?api_key=' . urlencode($apiKey) . '&action=get_units',
                 'note' => 'This key works with the hardcoded development keys: dev_test_key_123, test_map_key, test_key_456'
             ]);
         } else {
@@ -474,14 +501,16 @@ function handleTestEndpoint($pdo) {
         'success' => true,
         'message' => 'GPS Tracking API Test',
         'timestamp' => date('Y-m-d H:i:s'),
+        'domain' => getBaseUrl(),
+        'api_url' => getApiUrl() . 'api_gps_tracking.php',
         'development_mode' => DEVELOPMENT_MODE,
         'database_connected' => $dbConnected,
         'database_error' => $dbError ?? null,
         'endpoints' => [
-            'Initialize Database (WILL DELETE ALL DATA)' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?action=init',
-            'Generate API Key (no user_id = auto create)' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?action=generate_key',
-            'Generate API Key for user_id=1' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?action=generate_key&user_id=1',
-            'Test GPS tracking' => 'http://localhost/CPSA/admin/api/api_gps_tracking.php?api_key=dev_test_key_123&action=get_units'
+            'Initialize Database (WILL DELETE ALL DATA)' => getApiUrl() . 'api_gps_tracking.php?action=init',
+            'Generate API Key (no user_id = auto create)' => getApiUrl() . 'api_gps_tracking.php?action=generate_key',
+            'Generate API Key for user_id=1' => getApiUrl() . 'api_gps_tracking.php?action=generate_key&user_id=1',
+            'Test GPS tracking' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units'
         ],
         'predefined_test_keys' => [
             'dev_test_key_123' => 'CAPTAIN role - Full access',
@@ -491,14 +520,16 @@ function handleTestEndpoint($pdo) {
     ]);
 }
 
-// Get all GPS units
+// Get all GPS units - UPDATED FOR YOUR STRUCTURE
 function getGpsUnits($pdo) {
     try {
         $stmt = $pdo->prepare("SELECT 
             unit_id, callsign, assignment, status, 
-            latitude, longitude, speed, battery, 
-            distance_today, last_ping, is_active
+            latitude, longitude, 
+            distance_today, last_ping, is_active,
+            assignment_area, unit_type, duration, date, time
             FROM gps_units 
+            WHERE is_active = 1
             ORDER BY last_ping DESC");
         $stmt->execute();
         $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -506,9 +537,12 @@ function getGpsUnits($pdo) {
         // Format the data
         foreach ($units as &$unit) {
             $unit['last_ping'] = date('Y-m-d H:i:s', strtotime($unit['last_ping']));
-            $unit['battery'] = intval($unit['battery']);
-            $unit['speed'] = floatval($unit['speed']);
-            $unit['distance_today'] = floatval($unit['distance_today']);
+            $unit['latitude'] = floatval($unit['latitude']);
+            $unit['longitude'] = floatval($unit['longitude']);
+            $unit['distance_today'] = floatval($unit['distance_today'] ?? 0);
+            // Add default values for missing fields
+            $unit['speed'] = $unit['speed'] ?? 0;
+            $unit['battery'] = $unit['battery'] ?? 100;
         }
         
         echo json_encode([
@@ -516,9 +550,7 @@ function getGpsUnits($pdo) {
             'units' => $units,
             'timestamp' => date('Y-m-d H:i:s'),
             'count' => count($units),
-            'active_count' => count(array_filter($units, function($unit) {
-                return $unit['is_active'] == 1;
-            }))
+            'active_count' => count($units)
         ]);
         
     } catch (Exception $e) {
@@ -527,14 +559,19 @@ function getGpsUnits($pdo) {
     }
 }
 
-// Get single unit
+// Get single unit - UPDATED FOR YOUR STRUCTURE
 function getGpsUnit($pdo, $unitId) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM gps_units WHERE unit_id = ?");
+        $stmt = $pdo->prepare("SELECT * FROM gps_units WHERE unit_id = ? AND is_active = 1");
         $stmt->execute([$unitId]);
         $unit = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($unit) {
+            // Format the data
+            $unit['last_ping'] = date('Y-m-d H:i:s', strtotime($unit['last_ping']));
+            $unit['latitude'] = floatval($unit['latitude']);
+            $unit['longitude'] = floatval($unit['longitude']);
+            
             echo json_encode(['success' => true, 'unit' => $unit]);
         } else {
             http_response_code(404);
@@ -574,16 +611,19 @@ function getGpsStats($pdo) {
         $stats = [];
         
         // Total units
-        $stmt = $pdo->query("SELECT COUNT(*) as total_units FROM gps_units");
+        $stmt = $pdo->query("SELECT COUNT(*) as total_units FROM gps_units WHERE is_active = 1");
         $stats['total_units'] = $stmt->fetchColumn();
         
-        // Active units
-        $stmt = $pdo->query("SELECT COUNT(*) as active_units FROM gps_units WHERE is_active = 1");
-        $stats['active_units'] = $stmt->fetchColumn();
+        // Active units (same as total since we filter by is_active)
+        $stats['active_units'] = $stats['total_units'];
         
         // Units by status
         $stmt = $pdo->query("SELECT status, COUNT(*) as count FROM gps_units WHERE is_active = 1 GROUP BY status");
         $stats['by_status'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Get units on patrol
+        $stmt = $pdo->query("SELECT COUNT(*) as on_patrol FROM gps_units WHERE status LIKE '%Patrol%' AND is_active = 1");
+        $stats['on_patrol'] = $stmt->fetchColumn();
         
         echo json_encode([
             'success' => true,
@@ -596,7 +636,7 @@ function getGpsStats($pdo) {
     }
 }
 
-// Update unit location
+// Update unit location - UPDATED FOR YOUR STRUCTURE
 function updateUnitLocation($pdo, $data, $userId) {
     try {
         $unitId = $data['unit_id'] ?? '';
@@ -604,6 +644,9 @@ function updateUnitLocation($pdo, $data, $userId) {
         $lng = floatval($data['longitude'] ?? 0);
         $speed = isset($data['speed']) ? floatval($data['speed']) : 0;
         $status = $data['status'] ?? 'Stationary';
+        $assignment = $data['assignment'] ?? '';
+        $unitType = $data['unit_type'] ?? '';
+        $duration = $data['duration'] ?? '';
         
         if (empty($unitId)) {
             http_response_code(400);
@@ -612,10 +655,12 @@ function updateUnitLocation($pdo, $data, $userId) {
         }
         
         $stmt = $pdo->prepare("UPDATE gps_units 
-                              SET latitude = ?, longitude = ?, speed = ?, status = ?, last_ping = NOW()
+                              SET latitude = ?, longitude = ?, speed = ?, status = ?, 
+                                  assignment = ?, unit_type = ?, duration = ?, last_ping = NOW()
                               WHERE unit_id = ?");
-        $stmt->execute([$lat, $lng, $speed, $status, $unitId]);
+        $stmt->execute([$lat, $lng, $speed, $status, $assignment, $unitType, $duration, $unitId]);
         
+        // Also insert into history
         $stmt = $pdo->prepare("INSERT INTO gps_history (unit_id, latitude, longitude, speed) 
                               VALUES (?, ?, ?, ?)");
         $stmt->execute([$unitId, $lat, $lng, $speed]);
@@ -632,7 +677,7 @@ function updateUnitLocation($pdo, $data, $userId) {
     }
 }
 
-// Create new GPS unit
+// Create new GPS unit - UPDATED FOR YOUR STRUCTURE
 function createGpsUnit($pdo, $data) {
     try {
         $unitId = $data['unit_id'] ?? '';
@@ -641,6 +686,8 @@ function createGpsUnit($pdo, $data) {
         $status = $data['status'] ?? 'Stationary';
         $lat = floatval($data['latitude'] ?? 14.697000);
         $lng = floatval($data['longitude'] ?? 121.088000);
+        $unitType = $data['unit_type'] ?? 'Mobile Patrol';
+        $duration = $data['duration'] ?? '1 Hour';
         
         if (empty($unitId) || empty($callsign)) {
             http_response_code(400);
@@ -649,13 +696,19 @@ function createGpsUnit($pdo, $data) {
         }
         
         $stmt = $pdo->prepare("INSERT INTO gps_units 
-                              (unit_id, callsign, assignment, status, latitude, longitude, last_ping, is_active)
-                              VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
+                              (unit_id, callsign, assignment, status, latitude, longitude, 
+                               unit_type, duration, last_ping, is_active)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1)
                               ON DUPLICATE KEY UPDATE
                               callsign = VALUES(callsign),
                               assignment = VALUES(assignment),
-                              status = VALUES(status)");
-        $stmt->execute([$unitId, $callsign, $assignment, $status, $lat, $lng]);
+                              status = VALUES(status),
+                              latitude = VALUES(latitude),
+                              longitude = VALUES(longitude),
+                              unit_type = VALUES(unit_type),
+                              duration = VALUES(duration),
+                              last_ping = NOW()");
+        $stmt->execute([$unitId, $callsign, $assignment, $status, $lat, $lng, $unitType, $duration]);
         
         echo json_encode([
             'success' => true,
@@ -695,13 +748,15 @@ function updateUnitStatus($pdo, $data) {
     }
 }
 
-// Update GPS unit (PUT method)
+// Update GPS unit (PUT method) - UPDATED FOR YOUR STRUCTURE
 function updateGpsUnit($pdo, $unitId, $data) {
     try {
         $fields = [];
         $params = [];
         
-        $allowedFields = ['callsign', 'assignment', 'status', 'latitude', 'longitude', 'speed', 'battery', 'distance_today', 'is_active'];
+        $allowedFields = ['callsign', 'assignment', 'status', 'latitude', 'longitude', 
+                         'speed', 'battery', 'distance_today', 'is_active',
+                         'assignment_area', 'unit_type', 'duration', 'date', 'time'];
         
         foreach ($allowedFields as $field) {
             if (isset($data[$field])) {
@@ -766,6 +821,8 @@ try {
         'error' => 'Server error',
         'message' => $e->getMessage(),
         'timestamp' => date('Y-m-d H:i:s'),
+        'domain' => getBaseUrl(),
+        'api_url' => getApiUrl() . 'api_gps_tracking.php',
         'tip' => 'Check database connection in db_connection.php'
     ]);
 }
