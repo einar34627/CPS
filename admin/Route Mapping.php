@@ -462,14 +462,13 @@ $routesForJs = json_encode($preparedRoutes, JSON_UNESCAPED_UNICODE);
         }
          */
         #route-map {
-            width: 65%;
-            height: 700px; /* or 100% if inside a container with height */
+            width: 100%;
+            height: 700px;
             border-radius: 16px;
-            margin: 50px;
+            margin: 0;
             background: #e2e8f0;
             border: 1px solid var(--border);
             position: relative;
-            
         }
         .row {
             align-items: center;
@@ -1033,33 +1032,8 @@ async function performSearch() {
         trafficVisible = !trafficVisible;
     });
 
-   // --- High-Risk Crime Areas ---
-const highRiskAreas = [
-    { name: "Commonwealth Ave & Litex", lat: 14.7015, lon: 121.0840, riskLevel: "High" },
-    { name: "Commonwealth Ave & Don Antonio", lat: 14.7039, lon: 121.0860, riskLevel: "High" },
-    { name: "Pedestrian Bridge near Fairview", lat: 14.7055, lon: 121.0885, riskLevel: "Medium" },
-    { name: "Residential Alley, Sitio San Roque", lat: 14.7078, lon: 121.0855, riskLevel: "Medium" }
-];
-
-// Create a Layer Group for crime hotspots
-const crimeLayer = L.layerGroup().addTo(map);
-
-highRiskAreas.forEach(area => {
-    // Circle color based on risk
-    const color = area.riskLevel === "High" ? "#dc2626" : "#f59e0b";
-
-    const circle = L.circle([area.lat, area.lon], {
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.5,
-        radius: 80 // meters
-    }).bindPopup(`
-        <strong>${area.name}</strong><br>
-        Risk Level: <b>${area.riskLevel}</b>
-    `);
-
-    crimeLayer.addLayer(circle);
-});
+   const highRiskAreas = [];
+   const crimeLayer = L.layerGroup();
 
 // --- Optional: Toggle Crime Layer ---
 const toggleCrimeBtn = document.getElementById('toggle-crime');
@@ -1067,6 +1041,69 @@ if (toggleCrimeBtn) toggleCrimeBtn.addEventListener('click', () => {
     if (map.hasLayer(crimeLayer)) map.removeLayer(crimeLayer);
     else map.addLayer(crimeLayer);
 });
+
+map.createPane('gps-markers');
+map.getPane('gps-markers').style.zIndex = 650;
+const gpsUnitsLayer = L.layerGroup({ pane: 'gps-markers' }).addTo(map);
+const gpsMarkers = new Map();
+function statusColor(s){
+    const v = String(s || '').toLowerCase();
+    if (v.includes('assist')) return '#f44336';
+    if (v.includes('respond')) return '#ff9800';
+    if (v.includes('patrol')) return '#1d4ed8';
+    if (v.includes('station')) return '#94a3b8';
+    return '#374151';
+}
+function createRondaIconHtml(ring){
+    var c = ring || '#2563eb';
+    return "<div style='width:28px;height:28px;border-radius:50%;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+c+"'><svg width='18' height='18' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='6' r='2.4' fill='#111827'></circle><path d='M12 8.8l-1.5 2.6-2.2.5M12 8.8l1.8 1.8 2.2.5M10.5 11.4l1.5 2.8M13.8 11.1l-1.8 3.1M12 14.5l-1.6 3.7M12 14.5l1.6 3.7' stroke='#111827' stroke-width='1.8' stroke-linecap='round' fill='none'></path></svg></div>";
+}
+function createMobileIconHtml(ring){
+    var c = ring || '#2563eb';
+    return "<div style='width:28px;height:28px;border-radius:50%;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+c+"'><svg width='18' height='18' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><rect x='4' y='8' width='14' height='7' rx='1.5' fill='#111827'></rect><rect x='12' y='9' width='5' height='3' fill='#ffffff'></rect><circle cx='8' cy='16' r='1.6' fill='#111827'></circle><circle cx='15' cy='16' r='1.6' fill='#111827'></circle></svg></div>";
+}
+function upsertUnitMarker(u){
+    const id = u.id || u.unit_id;
+    const lat = parseFloat(u.lat ?? u.latitude);
+    const lng = parseFloat(u.lng ?? u.longitude);
+    if (!isFinite(lat) || !isFinite(lng) || !id) return;
+    const ring = statusColor(u.status);
+    const typeGuess = u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol'));
+    const html = typeGuess === 'Ronda' ? createRondaIconHtml(ring) : createMobileIconHtml(ring);
+    const icon = L.divIcon({ className: 'poi-icon', html, iconSize: [28,28], iconAnchor: [14,14] });
+    let m = gpsMarkers.get(id);
+    if (!m) {
+        m = L.marker([lat, lng], { icon, pane: 'gps-markers', title: u.callsign || String(id) }).addTo(gpsUnitsLayer);
+        gpsMarkers.set(id, m);
+    } else {
+        m.setLatLng([lat, lng]);
+        m.setIcon(icon);
+    }
+    if (m.bringToFront) m.bringToFront();
+    const label = u.callsign || id;
+    const info = [
+        `<strong>${label}</strong>`,
+        `Unit ID: ${id}`,
+        `Assignment: ${u.assignment || '—'}`,
+        `Status: ${u.status || '—'}`,
+        `Last Ping: ${u.last_ping ? new Date(u.last_ping).toLocaleString() : '—'}`
+    ].join('<br>');
+    m.bindTooltip(label, { direction: 'top' });
+    m.bindPopup(info);
+}
+async function fetchGpsUnits(){
+    try {
+        const res = await fetch('api/gps_data.php?api_key=TEST_KEY_123', { credentials: 'include' });
+        const data = await res.json();
+        const units = Array.isArray(data?.units) ? data.units : [];
+        const active = units.filter(u => parseInt(u.is_active ?? 1) === 1);
+        const seen = new Set();
+        for (const u of active) { upsertUnitMarker(u); seen.add(u.id || u.unit_id); }
+        for (const [id, m] of gpsMarkers) { if (!seen.has(id)) { gpsUnitsLayer.removeLayer(m); gpsMarkers.delete(id); } }
+    } catch (e) {}
+}
+fetchGpsUnits();
+setInterval(fetchGpsUnits, 5000);
 
 const zoningData = {
     "type": "FeatureCollection",
@@ -1268,9 +1305,9 @@ function getZoningStyle(feature) {
     // Kinopya ang color scheme base sa iyong reference legend
     switch (zone) {
         case 'R-2': fillColor = '#f3f56cff'; break; // Yellow
-        case 'R-3': fillColor = '#ec4899'; break; // Orange
-        case 'C-1': fillColor = '#fbbf24 '; break; // Blue
-        case 'C-2': fillColor = '#5ee97cff' ; break; // Pink
+        case 'R-3': fillColor = '#ec4848ff'; break; // Orange
+        case 'C-1': fillColor = '#fb8c24ff '; break; // Blue
+        case 'C-2': fillColor = '#2bcf2eff' ; break; // Pink
         case 'INSTITUTIONAL': fillColor = '#f3f56cff '; break; // Blue/Violet
         case 'SOCIALIZED HOUSING': fillColor = '#a78bfa'; break; // Purple
         case 'SPECIAL URBAN': fillColor = '#8b5cf6'; break; // Deep Purple
@@ -1286,6 +1323,15 @@ function getZoningStyle(feature) {
     };
 }
 
+function getZoningRiskLabel(colorHex){
+    const c = String(colorHex || '').toLowerCase().replace(/\s/g,'');
+    if (c.startsWith('#ec4848')) return 'Zone 4 - High Risk';
+    if (c.startsWith('#fb8c24')) return 'Zone 3 - Medium Risk';
+    if (c.startsWith('#f3f56c')) return 'Zone 2 - Low Risk';
+    if (c.startsWith('#2bcf2e')) return 'Zone 1 - Safe Area';
+    return 'Zone';
+}
+
 // 3. Button Click Event Listener
 document.getElementById('toggle-zoning').addEventListener('click', function() {
     if (!isZoningVisible) {
@@ -1294,7 +1340,8 @@ document.getElementById('toggle-zoning').addEventListener('click', function() {
             zoningLayer = L.geoJSON(zoningData, { // Siguraduhin na 'zoningData' ang name ng Variable mo
                 style: getZoningStyle,
                 onEachFeature: function (feature, layer) {
-                    layer.bindPopup(`<b>Zone:</b> ${feature.properties.zone}<br><b>Type:</b> ${feature.properties.name}`);
+                    const label = getZoningRiskLabel(getZoningStyle(feature).fillColor);
+                    layer.bindTooltip(label, { sticky: true, direction: 'center', opacity: 0.9 });
                 }
             });
         }
@@ -1305,11 +1352,28 @@ document.getElementById('toggle-zoning').addEventListener('click', function() {
         // Kung visible na, tanggalin sa map
         map.removeLayer(zoningLayer);
         this.innerText = "Show Zoning Map";
-        this.style.backgroundColor = ""; // Balik sa default color
+        this.style.backgroundColor = ""; //
     }
-    isZoningVisible = !isZoningVisible; // I-toggle ang state
+    isZoningVisible = !isZoningVisible; //
 });
 
+// Default: show zoning map on initial load
+const toggleZBtn = document.getElementById('toggle-zoning');
+if (!zoningLayer) {
+    zoningLayer = L.geoJSON(zoningData, {
+        style: getZoningStyle,
+        onEachFeature: function (feature, layer) {
+            const label = getZoningRiskLabel(getZoningStyle(feature).fillColor);
+            layer.bindTooltip(label, { sticky: true, direction: 'center', opacity: 0.9 });
+        }
+    });
+}
+zoningLayer.addTo(map);
+isZoningVisible = true;
+if (toggleZBtn) {
+    toggleZBtn.innerText = "Hide Zoning Map";
+    toggleZBtn.style.backgroundColor = "#feb2b2";
+}
 
 // External legend panels moved outside the map
 }

@@ -57,40 +57,7 @@ try {
         $lastPingDate = new DateTime($lastPing);
         $lastPing = $lastPingDate->format('Y-m-d H:i:s');
     }
-
-    // Ensure new columns exist
-    try {
-        $cols = [
-            ['name' => 'assignment_area', 'def' => 'VARCHAR(255) DEFAULT NULL'],
-            ['name' => 'unit_type', 'def' => 'VARCHAR(64) DEFAULT NULL'],
-            ['name' => 'duration', 'def' => 'VARCHAR(64) DEFAULT NULL'],
-            ['name' => 'longtitude', 'def' => 'DECIMAL(10,6) DEFAULT NULL'],
-            ['name' => 'date', 'def' => 'DATE DEFAULT NULL'],
-            ['name' => 'time', 'def' => 'TIME DEFAULT NULL']
-        ];
-        foreach ($cols as $c) {
-            $chk = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
-            $chk->execute([$c['name']]);
-            if (!$chk->fetch()) {
-                $pdo->exec("ALTER TABLE gps_units ADD COLUMN " . $c['name'] . " " . $c['def']);
-            }
-        }
-        // Also ensure is_active column exists (used by listing)
-        $chkIA = $pdo->query("SHOW COLUMNS FROM gps_units LIKE 'is_active'");
-        if (!$chkIA->fetch()) {
-            $pdo->exec("ALTER TABLE gps_units ADD COLUMN is_active TINYINT(1) DEFAULT 1");
-        }
-        // Drop speed and battery columns if present
-        foreach (['speed', 'battery'] as $dropCol) {
-            $chkDrop = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
-            $chkDrop->execute([$dropCol]);
-            if ($chkDrop->fetch()) {
-                $pdo->exec("ALTER TABLE gps_units DROP COLUMN " . $dropCol);
-            }
-        }
-    } catch (Exception $e) {
-        // Ignore schema adjustment errors
-    }
+    // Skip schema adjustments to improve performance
 
     if ($isEdit && isset($data['editing_unit_id'])) {
         // Update existing unit

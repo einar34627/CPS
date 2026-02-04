@@ -1,33 +1,16 @@
 <?php
-// api_gps_tracking.php - ULTRA SIMPLIFIED VERSION
-// GPS Tracking API - For map integration - WORKS WITH YOUR EXISTING DATABASE
+// api_gps_tracking.php
+// GPS Tracking API - For map integration
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
-
-// Log errors to a file
-ini_set('log_errors', 1);
-ini_set('error_log', '/tmp/php_errors.log');
-
-// Development mode - set to false in production
-define('DEVELOPMENT_MODE', true);
-
 session_start();
-
-// Check if db_connection.php exists and works
-$dbConfigPath = '../../config/db_connection.php';
-if (!file_exists($dbConfigPath)) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database configuration file not found', 'path' => $dbConfigPath]);
-    exit;
-}
-
-require_once $dbConfigPath;
+require_once '../../config/db_connection.php';
 
 // Enable CORS for API access
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE');
-header('Access-Control-Allow-Headers: Content-Type, X-API-Key, Authorization');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, X-API-Key');
 header('Content-Type: application/json');
 
 // Handle preflight requests
@@ -35,146 +18,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-// Function to get current domain URL
-function getBaseUrl() {
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443 ? "https://" : "http://";
-    $domain = $_SERVER['HTTP_HOST'];
-    return $protocol . $domain;
-}
-
-// Function to get full API URL
-function getApiUrl($path = '') {
-    $baseUrl = getBaseUrl();
-    $scriptPath = dirname($_SERVER['SCRIPT_NAME']);
-    $fullPath = rtrim($baseUrl . $scriptPath, '/') . '/';
-    
-    if ($path) {
-        return $fullPath . ltrim($path, '/');
-    }
-    return $fullPath;
-}
-
-// SIMPLIFIED: Only create tables if they don't exist
-function setupDatabaseTables($pdo) {
+// API Key validation function
+function validateApiKey($pdo, $apiKey) {
     try {
-        // Create gps_history table if it doesn't exist
-        $pdo->exec("CREATE TABLE IF NOT EXISTS gps_history (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            unit_id VARCHAR(50) NOT NULL,
-            latitude DECIMAL(10, 6) NOT NULL,
-            longitude DECIMAL(10, 6) NOT NULL,
-            speed DECIMAL(5,2) DEFAULT 0.00,
-            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $stmt = $pdo->prepare("SELECT u.id, u.first_name, u.last_name, u.role 
+                              FROM api_keys ak 
+                              JOIN users u ON ak.user_id = u.id 
+                              WHERE ak.api_key_hash = ?");
+        $stmt->execute([$apiKey]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        return true;
+        return $row ? $row : false;
     } catch (Exception $e) {
-        error_log("Database setup error: " . $e->getMessage());
         return false;
     }
-}
-
-// API Key validation function - SIMPLE TEST MODE ONLY
-function validateApiKey($pdo, $apiKey) {
-    // In development mode, use hardcoded keys for testing
-    if (DEVELOPMENT_MODE) {
-        $devKeys = [
-            'dev_test_key_123' => ['id' => 1, 'first_name' => 'Barangay', 'last_name' => 'Captain', 'role' => 'CAPTAIN'],
-            'test_map_key' => ['id' => 2, 'first_name' => 'Barangay', 'last_name' => 'Secretary', 'role' => 'SECRETARY'],
-            'test_key_456' => ['id' => 3, 'first_name' => 'Barangay', 'last_name' => 'Tanod', 'role' => 'TANOD'],
-            'simple_test_key' => ['id' => 99, 'first_name' => 'Test', 'last_name' => 'User', 'role' => 'CAPTAIN']
-        ];
-        
-        if (isset($devKeys[$apiKey])) {
-            return $devKeys[$apiKey];
-        }
-        
-        // Accept any test key in development
-        return ['id' => 99, 'first_name' => 'Development', 'last_name' => 'User', 'role' => 'CAPTAIN'];
-    }
-    
-    // For production, accept any key for now
-    return ['id' => 99, 'first_name' => 'Production', 'last_name' => 'User', 'role' => 'CAPTAIN'];
 }
 
 // Main API function
 function handleApiRequest($pdo) {
     $method = $_SERVER['REQUEST_METHOD'];
-    $action = $_GET['action'] ?? '';
-    
-    // DEBUG: Log request
-    error_log("API Request: $method " . $_SERVER['REQUEST_URI'] . " Action: $action");
-    
-    // Handle special endpoints that don't require API key
-    if ($method === 'GET' && $action) {
-        switch ($action) {
-            case 'test':
-                handleTestEndpoint($pdo);
-                return;
-            case 'generate_key':
-                handleGenerateKey($pdo);
-                return;
-            case 'init':
-                handleInitDatabase($pdo);
-                return;
-        }
-    }
-    
-    // For all other endpoints, require API key
-    
-    // Get API key from various sources
-    $apiKey = '';
-    if (isset($_SERVER['HTTP_X_API_KEY'])) {
-        $apiKey = $_SERVER['HTTP_X_API_KEY'];
-    } elseif (isset($_GET['api_key'])) {
-        $apiKey = $_GET['api_key'];
-    }
+    $apiKey = $_SERVER['HTTP_X_API_KEY'] ?? $_GET['api_key'] ?? '';
+    ensureGpsSchema($pdo);
     
     if (empty($apiKey)) {
         http_response_code(401);
-        echo json_encode([
-            'error' => 'API key required', 
-            'hint' => 'Provide X-API-Key header or api_key parameter',
-            'example' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
-            'special_endpoints' => 'For testing without API key: action=test, action=init, action=generate_key'
-        ]);
+        echo json_encode(['error' => 'API key required']);
         return;
     }
     
-    // Validate API key (simple mode)
+    // Validate API key
     $user = validateApiKey($pdo, $apiKey);
-    
     if (!$user) {
         http_response_code(401);
-        echo json_encode([
-            'error' => 'Invalid API key',
-            'provided_key' => substr($apiKey, 0, 10) . '...',
-            'development_keys' => DEVELOPMENT_MODE ? ['dev_test_key_123', 'test_map_key', 'test_key_456', 'simple_test_key'] : 'Disabled in production'
-        ]);
-        return;
-    }
-
-    // All users have permission in simplified version
-    $allowedRoles = ['CAPTAIN', 'SECRETARY', 'TANOD', 'ADMIN', 'USER'];
-    if (!in_array($user['role'], $allowedRoles)) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Insufficient permissions', 'your_role' => $user['role']]);
+        echo json_encode(['error' => 'Invalid API key']);
         return;
     }
     
-    // Route to appropriate handler
+    // Check if user has permission for GPS tracking
+    $allowedRoles = ['CAPTAIN', 'SECRETARY', 'TANOD'];
+    if (!in_array($user['role'], $allowedRoles)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Insufficient permissions']);
+        return;
+    }
+    
     switch ($method) {
         case 'GET':
-            handleGetRequest($pdo, $user, $action);
+            handleGetRequest($pdo);
             break;
         case 'POST':
             handlePostRequest($pdo, $user);
-            break;
-        case 'PUT':
-            handlePutRequest($pdo, $user);
-            break;
-        case 'DELETE':
-            handleDeleteRequest($pdo, $user);
             break;
         default:
             http_response_code(405);
@@ -183,7 +76,9 @@ function handleApiRequest($pdo) {
 }
 
 // Handle GET requests
-function handleGetRequest($pdo, $user, $action) {
+function handleGetRequest($pdo) {
+    $action = $_GET['action'] ?? 'get_units';
+    
     switch ($action) {
         case 'get_units':
             getGpsUnits($pdo);
@@ -197,24 +92,14 @@ function handleGetRequest($pdo, $user, $action) {
             $hours = intval($_GET['hours'] ?? 24);
             getGpsHistory($pdo, $unitId, $hours);
             break;
-        case 'get_stats':
-            getGpsStats($pdo);
-            break;
         default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action', 'valid_actions' => ['get_units', 'get_unit', 'get_history', 'get_stats']]);
+            echo json_encode(['error' => 'Invalid action']);
     }
 }
 
 // Handle POST requests
 function handlePostRequest($pdo, $user) {
     $input = json_decode(file_get_contents('php://input'), true);
-    
-    // If no JSON input, try form data
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        $input = $_POST;
-    }
-    
     $action = $input['action'] ?? '';
     
     switch ($action) {
@@ -228,154 +113,28 @@ function handlePostRequest($pdo, $user) {
             updateUnitStatus($pdo, $input);
             break;
         default:
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid action', 'valid_actions' => ['update_location', 'create_unit', 'update_status']]);
+            echo json_encode(['error' => 'Invalid action']);
     }
 }
 
-// Handle PUT requests
-function handlePutRequest($pdo, $user) {
-    http_response_code(501);
-    echo json_encode(['error' => 'PUT not implemented in simplified version']);
-}
-
-// Handle DELETE requests
-function handleDeleteRequest($pdo, $user) {
-    http_response_code(501);
-    echo json_encode(['error' => 'DELETE not implemented in simplified version']);
-}
-
-// Initialize database (NO API KEY REQUIRED)
-function handleInitDatabase($pdo) {
-    if (!DEVELOPMENT_MODE) {
-        http_response_code(403);
-        echo json_encode(['error' => 'This endpoint is only available in development mode']);
-        return;
-    }
-    
-    try {
-        // Setup only needed tables
-        setupDatabaseTables($pdo);
-        
-        echo json_encode([
-            'success' => true,
-            'message' => 'Database initialized successfully (history table only)',
-            'test_api_keys' => [
-                'dev_test_key_123' => 'CAPTAIN role',
-                'test_map_key' => 'SECRETARY role',
-                'test_key_456' => 'TANOD role'
-            ],
-            'test_endpoints' => [
-                'Get all units' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
-                'Test endpoint' => getApiUrl() . 'api_gps_tracking.php?action=test'
-            ],
-            'your_api_url' => getApiUrl() . 'api_gps_tracking.php'
-        ]);
-        
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to initialize database', 'message' => $e->getMessage()]);
-    }
-}
-
-// Handle generate key endpoint (NO API KEY REQUIRED)
-function handleGenerateKey($pdo) {
-    if (!DEVELOPMENT_MODE) {
-        http_response_code(403);
-        echo json_encode(['error' => 'This endpoint is only available in development mode']);
-        return;
-    }
-    
-    $userId = intval($_GET['user_id'] ?? 0);
-    $scope = $_GET['scope'] ?? 'MAP';
-    
-    // Generate random API key
-    $apiKey = 'generated_' . bin2hex(random_bytes(16));
-    
-    echo json_encode([
-        'success' => true,
-        'api_key' => $apiKey,
-        'user_id' => $userId,
-        'scope' => $scope,
-        'warning' => 'Store this key securely!',
-        'usage_example' => getApiUrl() . 'api_gps_tracking.php?api_key=' . urlencode($apiKey) . '&action=get_units',
-        'note' => 'This key works with the hardcoded development keys'
-    ]);
-}
-
-// Test endpoint (NO API KEY REQUIRED)
-function handleTestEndpoint($pdo) {
-    try {
-        // Test database connection
-        $pdo->query("SELECT 1");
-        $dbConnected = true;
-        
-        // Test if gps_units table exists and get count
-        $stmt = $pdo->query("SELECT COUNT(*) as unit_count FROM gps_units WHERE is_active = 1");
-        $unitCount = $stmt->fetchColumn();
-        
-    } catch (Exception $e) {
-        $dbConnected = false;
-        $dbError = $e->getMessage();
-        $unitCount = 0;
-    }
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'GPS Tracking API Test',
-        'timestamp' => date('Y-m-d H:i:s'),
-        'domain' => getBaseUrl(),
-        'api_url' => getApiUrl() . 'api_gps_tracking.php',
-        'development_mode' => DEVELOPMENT_MODE,
-        'database_connected' => $dbConnected,
-        'unit_count' => $unitCount,
-        'database_error' => $dbError ?? null,
-        'test_endpoints' => [
-            'Get all units' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_units',
-            'Get statistics' => getApiUrl() . 'api_gps_tracking.php?api_key=dev_test_key_123&action=get_stats'
-        ],
-        'predefined_test_keys' => [
-            'dev_test_key_123' => 'CAPTAIN role - Full access',
-            'test_map_key' => 'SECRETARY role - Map access',
-            'test_key_456' => 'TANOD role - Basic access'
-        ],
-        'note' => 'Using simplified API that works with your existing database structure'
-    ]);
-}
-
-// Get all GPS units - SIMPLIFIED VERSION
+// Get all GPS units
 function getGpsUnits($pdo) {
     try {
-        // ONLY SELECT COLUMNS THAT WE KNOW EXIST IN YOUR DATABASE
         $stmt = $pdo->prepare("SELECT 
             unit_id, callsign, assignment, status, 
-            latitude, longitude, 
-            distance_today, last_ping, is_active
+            latitude, longitude, speed, battery, 
+            distance_today, last_ping 
             FROM gps_units 
             WHERE is_active = 1
             ORDER BY last_ping DESC");
         $stmt->execute();
         $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Format the data
-        foreach ($units as &$unit) {
-            $unit['last_ping'] = date('Y-m-d H:i:s', strtotime($unit['last_ping']));
-            $unit['latitude'] = floatval($unit['latitude']);
-            $unit['longitude'] = floatval($unit['longitude']);
-            $unit['distance_today'] = floatval($unit['distance_today'] ?? 0);
-            // Add default values for compatibility
-            $unit['speed'] = 0;
-            $unit['battery'] = 100;
-            $unit['unit_type'] = 'Mobile Patrol';
-            $unit['duration'] = '1 Hour';
-        }
-        
         echo json_encode([
             'success' => true,
             'units' => $units,
             'timestamp' => date('Y-m-d H:i:s'),
-            'count' => count($units),
-            'active_count' => count($units)
+            'count' => count($units)
         ]);
         
     } catch (Exception $e) {
@@ -384,47 +143,37 @@ function getGpsUnits($pdo) {
     }
 }
 
-// Get single unit - SIMPLIFIED
+// Get single unit
 function getGpsUnit($pdo, $unitId) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM gps_units WHERE unit_id = ? AND is_active = 1");
+        $stmt = $pdo->prepare("SELECT * FROM gps_units WHERE unit_id = ?");
         $stmt->execute([$unitId]);
         $unit = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($unit) {
-            // Format the data
-            $unit['last_ping'] = date('Y-m-d H:i:s', strtotime($unit['last_ping']));
-            $unit['latitude'] = floatval($unit['latitude']);
-            $unit['longitude'] = floatval($unit['longitude']);
-            
             echo json_encode(['success' => true, 'unit' => $unit]);
         } else {
             http_response_code(404);
-            echo json_encode(['error' => 'Unit not found', 'unit_id' => $unitId]);
+            echo json_encode(['error' => 'Unit not found']);
         }
     } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['error' => 'Database error', 'message' => $e->getMessage()]);
+        echo json_encode(['error' => 'Database error']);
     }
 }
 
 // Get location history
 function getGpsHistory($pdo, $unitId, $hours = 24) {
     try {
-        // Check if table exists first
-        $tableExists = $pdo->query("SHOW TABLES LIKE 'gps_history'")->fetch();
-        
-        if (!$tableExists) {
-            echo json_encode([
-                'success' => true, 
-                'history' => [],
-                'unit_id' => $unitId,
-                'hours' => $hours,
-                'count' => 0,
-                'note' => 'History table not yet created. Use ?action=init to create it.'
-            ]);
-            return;
-        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS gps_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            unit_id VARCHAR(50) NOT NULL,
+            latitude DECIMAL(10, 6) NOT NULL,
+            longitude DECIMAL(10, 6) NOT NULL,
+            speed DECIMAL(5,2) DEFAULT 0.00,
+            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_unit_time (unit_id, recorded_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         
         $stmt = $pdo->prepare("SELECT latitude, longitude, speed, recorded_at 
                               FROM gps_history 
@@ -433,57 +182,19 @@ function getGpsHistory($pdo, $unitId, $hours = 24) {
         $stmt->execute([$unitId, $hours]);
         $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        echo json_encode([
-            'success' => true, 
-            'history' => $history,
-            'unit_id' => $unitId,
-            'hours' => $hours,
-            'count' => count($history)
-        ]);
+        echo json_encode(['success' => true, 'history' => $history]);
     } catch (Exception $e) {
-        echo json_encode(['success' => false, 'error' => 'Failed to fetch history', 'message' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Failed to fetch history']);
     }
 }
 
-// Get GPS statistics
-function getGpsStats($pdo) {
-    try {
-        $stats = [];
-        
-        // Total units
-        $stmt = $pdo->query("SELECT COUNT(*) as total_units FROM gps_units WHERE is_active = 1");
-        $stats['total_units'] = $stmt->fetchColumn();
-        
-        // Units by status
-        $stmt = $pdo->query("SELECT status, COUNT(*) as count FROM gps_units WHERE is_active = 1 GROUP BY status");
-        $stats['by_status'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Calculate on patrol count
-        $onPatrol = 0;
-        foreach ($stats['by_status'] as $status) {
-            if (stripos($status['status'], 'patrol') !== false || $status['status'] == 'On Patrol') {
-                $onPatrol += $status['count'];
-            }
-        }
-        $stats['on_patrol'] = $onPatrol;
-        
-        echo json_encode([
-            'success' => true,
-            'stats' => $stats,
-            'timestamp' => date('Y-m-d H:i:s')
-        ]);
-        
-    } catch (Exception $e) {
-        echo json_encode(['error' => 'Failed to fetch statistics', 'message' => $e->getMessage()]);
-    }
-}
-
-// Update unit location - SIMPLIFIED
+// Update unit location
 function updateUnitLocation($pdo, $data, $userId) {
     try {
         $unitId = $data['unit_id'] ?? '';
         $lat = floatval($data['latitude'] ?? 0);
         $lng = floatval($data['longitude'] ?? 0);
+        $speed = isset($data['speed']) ? floatval($data['speed']) : 0;
         $status = $data['status'] ?? 'Stationary';
         
         if (empty($unitId)) {
@@ -492,25 +203,14 @@ function updateUnitLocation($pdo, $data, $userId) {
             return;
         }
         
-        // Simple update - only columns that definitely exist
         $stmt = $pdo->prepare("UPDATE gps_units 
-                              SET latitude = ?, longitude = ?, status = ?, last_ping = NOW()
+                              SET latitude = ?, longitude = ?, speed = ?, status = ?, last_ping = NOW()
                               WHERE unit_id = ?");
-        $stmt->execute([$lat, $lng, $status, $unitId]);
+        $stmt->execute([$lat, $lng, $speed, $status, $unitId]);
         
-        // Try to insert into history if table exists
-        try {
-            $tableExists = $pdo->query("SHOW TABLES LIKE 'gps_history'")->fetch();
-            if ($tableExists) {
-                $speed = isset($data['speed']) ? floatval($data['speed']) : 0;
-                $stmt = $pdo->prepare("INSERT INTO gps_history (unit_id, latitude, longitude, speed) 
-                                      VALUES (?, ?, ?, ?)");
-                $stmt->execute([$unitId, $lat, $lng, $speed]);
-            }
-        } catch (Exception $e) {
-            // History table might not exist, that's okay
-            error_log("GPS History insert failed: " . $e->getMessage());
-        }
+        $stmt = $pdo->prepare("INSERT INTO gps_history (unit_id, latitude, longitude, speed) 
+                              VALUES (?, ?, ?, ?)");
+        $stmt->execute([$unitId, $lat, $lng, $speed]);
         
         echo json_encode([
             'success' => true,
@@ -520,11 +220,11 @@ function updateUnitLocation($pdo, $data, $userId) {
         ]);
     } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['error' => 'Failed to update location', 'message' => $e->getMessage()]);
+        echo json_encode(['error' => 'Failed to update location']);
     }
 }
 
-// Create new GPS unit - SIMPLIFIED
+// Create new GPS unit
 function createGpsUnit($pdo, $data) {
     try {
         $unitId = $data['unit_id'] ?? '';
@@ -533,6 +233,7 @@ function createGpsUnit($pdo, $data) {
         $status = $data['status'] ?? 'Stationary';
         $lat = floatval($data['latitude'] ?? 14.697000);
         $lng = floatval($data['longitude'] ?? 121.088000);
+        $createdBy = intval($data['created_by'] ?? 0);
         
         if (empty($unitId) || empty($callsign)) {
             http_response_code(400);
@@ -540,18 +241,14 @@ function createGpsUnit($pdo, $data) {
             return;
         }
         
-        // Simple insert with only required fields
         $stmt = $pdo->prepare("INSERT INTO gps_units 
-                              (unit_id, callsign, assignment, status, latitude, longitude, last_ping, is_active)
-                              VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
+                              (unit_id, callsign, assignment, status, latitude, longitude, last_ping, is_active, created_by)
+                              VALUES (?, ?, ?, ?, ?, ?, NOW(), 1, ?)
                               ON DUPLICATE KEY UPDATE
                               callsign = VALUES(callsign),
                               assignment = VALUES(assignment),
-                              status = VALUES(status),
-                              latitude = VALUES(latitude),
-                              longitude = VALUES(longitude),
-                              last_ping = NOW()");
-        $stmt->execute([$unitId, $callsign, $assignment, $status, $lat, $lng]);
+                              status = VALUES(status)");
+        $stmt->execute([$unitId, $callsign, $assignment, $status, $lat, $lng, $createdBy]);
         
         echo json_encode([
             'success' => true,
@@ -591,25 +288,48 @@ function updateUnitStatus($pdo, $data) {
     }
 }
 
-// Run the API with error handling
-try {
-    // Test database connection first
-    if (!isset($pdo)) {
-        throw new Exception("Database connection not established");
+// Run the API
+handleApiRequest($pdo);
+
+function ensureGpsSchema($pdo) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gps_units (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        unit_id VARCHAR(50) UNIQUE NOT NULL,
+        callsign VARCHAR(50) NOT NULL,
+        assignment VARCHAR(255) DEFAULT NULL,
+        status VARCHAR(50) DEFAULT 'Stationary',
+        latitude DECIMAL(10,6) DEFAULT 0.000000,
+        longitude DECIMAL(10,6) DEFAULT 0.000000,
+        speed DECIMAL(5,2) DEFAULT 0.00,
+        battery INT DEFAULT 100,
+        distance_today DECIMAL(8,2) DEFAULT 0.00,
+        last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        is_active TINYINT(1) DEFAULT 1,
+        created_by INT DEFAULT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_unit_id (unit_id),
+        INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $cols = ['speed' => 'DECIMAL(5,2) DEFAULT 0.00', 'battery' => 'INT DEFAULT 100', 'distance_today' => 'DECIMAL(8,2) DEFAULT 0.00', 'last_ping' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'is_active' => 'TINYINT(1) DEFAULT 1'];
+    foreach ($cols as $name => $def) {
+        $chk = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
+        $chk->execute([$name]);
+        if (!$chk->fetch()) {
+            $pdo->exec("ALTER TABLE gps_units ADD COLUMN $name $def");
+        }
     }
-    
-    // Run the API
-    handleApiRequest($pdo);
-    
-} catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode([
-        'error' => 'Server error',
-        'message' => $e->getMessage(),
-        'timestamp' => date('Y-m-d H:i:s'),
-        'domain' => getBaseUrl(),
-        'api_url' => getApiUrl() . 'api_gps_tracking.php',
-        'tip' => 'Check database connection in db_connection.php'
-    ]);
+    $chkPing = $pdo->query("SHOW COLUMNS FROM gps_units LIKE 'last_update'");
+    if ($chkPing->fetch()) {
+        $pdo->exec("ALTER TABLE gps_units CHANGE COLUMN last_update last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gps_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        unit_id VARCHAR(50) NOT NULL,
+        latitude DECIMAL(10,6) NOT NULL,
+        longitude DECIMAL(10,6) NOT NULL,
+        speed DECIMAL(5,2) DEFAULT 0.00,
+        recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_unit_time (unit_id, recorded_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
 ?>

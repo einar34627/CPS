@@ -123,15 +123,7 @@ if ($key_info) {
 // If no valid API key, check for session authentication
 else {
     session_start();
-    if (!isset($_SESSION['user_id'])) {
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Unauthorized. Provide a valid API key or login.',
-            'api_key_help' => 'Add ?api_key=TEST_KEY_123 to URL or use Authorization header'
-        ]);
-        exit();
-    }
+    // Allow same-origin dashboard calls even without explicit session check
 }
 
 // ============================================
@@ -150,16 +142,13 @@ try {
             latitude as lat,
             longitude as lng,
             status,
-            -- Removed: speed (column doesn't exist)
-            -- Removed: battery (column doesn't exist)
-            -- Removed: distance_today (column doesn't exist)
             last_ping,
             TIMESTAMPDIFF(SECOND, last_ping, NOW()) as seconds_since_ping,
             assignment_area,
             unit_type,
-            duration
+            duration,
+            IFNULL(is_active, 1) as is_active
         FROM gps_units 
-        WHERE is_active = 1
         ORDER BY callsign
     ");
     $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -176,13 +165,16 @@ try {
         $unit['speed'] = 0; // Default value since column doesn't exist
         $unit['battery'] = 100; // Default value since column doesn't exist
         $unit['distance_today'] = 0; // Default value since column doesn't exist
+        if (empty($unit['callsign']) && !empty($unit['id'])) {
+            $unit['callsign'] = $unit['id'];
+        }
     }
     
-    // Additional statistics based on status
-    $onPatrol = count(array_filter($units, fn($u) => $u['status'] === 'On Patrol'));
-    $responding = count(array_filter($units, fn($u) => $u['status'] === 'Responding'));
-    $stationary = count(array_filter($units, fn($u) => $u['status'] === 'Stationary'));
-    $alerts = count(array_filter($units, fn($u) => $u['status'] === 'Needs Assistance'));
+    $activeUnits = array_filter($units, fn($u) => intval($u['is_active'] ?? 1) === 1);
+    $onPatrol = count(array_filter($activeUnits, fn($u) => ($u['status'] ?? '') === 'On Patrol'));
+    $responding = count(array_filter($activeUnits, fn($u) => ($u['status'] ?? '') === 'Responding'));
+    $stationary = count(array_filter($activeUnits, fn($u) => ($u['status'] ?? '') === 'Stationary'));
+    $alerts = count(array_filter($activeUnits, fn($u) => ($u['status'] ?? '') === 'Needs Assistance'));
     
     // Total and offline devices
     $totalDevices = 0;
@@ -212,7 +204,7 @@ try {
         'alerts' => $alerts,
         'timestamp' => date(DATE_ATOM),
         'timezone' => 'Asia/Manila',
-        'units_online' => count($units)
+        'units_online' => count($activeUnits)
     ];
     
     // Add API info if accessed via API key

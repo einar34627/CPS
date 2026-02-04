@@ -16,13 +16,6 @@ try {
         ]
     );
 } catch (PDOException $e) {
-    if (!class_exists('CPSA_NullPDO')) {
-        class CPSA_NullPDO {
-            public function query($sql) { throw new PDOException('Database connection failed'); }
-            public function prepare($sql) { throw new PDOException('Database connection failed'); }
-            public function exec($sql) { throw new PDOException('Database connection failed'); }
-        }
-    }
-    $pdo = new CPSA_NullPDO();
+    die("Database connection failed: " . $e->getMessage());
 }
 ?>

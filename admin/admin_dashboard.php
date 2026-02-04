@@ -2,54 +2,6 @@
 
 session_start();
 require_once '../config/db_connection.php';
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-function cpsa_random_bytes($len){
-    if (function_exists('random_bytes')) { return random_bytes($len); }
-    if (function_exists('openssl_random_pseudo_bytes')) {
-        $strong = false;
-        $b = openssl_random_pseudo_bytes($len, $strong);
-        if ($b !== false) { return $b; }
-    }
-    $out = '';
-    for ($i = 0; $i < $len; $i++) { $out .= chr(mt_rand(0,255)); }
-    return $out;
-}
-
-try {
-    if (isset($_SESSION['user_id'])) {
-        $uidForKey = (int)$_SESSION['user_id'];
-        $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            api_key_hash VARCHAR(255) NOT NULL,
-            scope VARCHAR(32) DEFAULT 'GENERAL',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        try {
-            $chkScope = $pdo->query("SHOW COLUMNS FROM api_keys LIKE 'scope'");
-            if (!$chkScope || !$chkScope->fetch(PDO::FETCH_ASSOC)) {
-                $pdo->exec("ALTER TABLE api_keys ADD COLUMN scope VARCHAR(32) DEFAULT 'GENERAL'");
-            }
-        } catch (Exception $e) {}
-        $stmtDel = $pdo->prepare("DELETE FROM api_keys WHERE user_id = ? AND scope = 'MAP'");
-        $stmtDel->execute([$uidForKey]);
-        if (function_exists('password_hash')) {
-            $MAP_API_KEY = 'sk_map_' . bin2hex(cpsa_random_bytes(16));
-            $MAP_API_HASH = password_hash($MAP_API_KEY, PASSWORD_DEFAULT, ['cost' => 12]);
-            $stmtIns = $pdo->prepare("INSERT INTO api_keys (user_id, api_key_hash, scope) VALUES (?, ?, 'MAP')");
-            $stmtIns->execute([$uidForKey, $MAP_API_HASH]);
-        } else {
-            $MAP_API_KEY = null;
-        }
-    } else {
-        $MAP_API_KEY = null;
-    }
-} catch (Exception $e) {
-    $MAP_API_KEY = null;
-}
 
 function cps_msg_key() {
     $dbn = isset($GLOBALS['dbname']) ? (string)$GLOBALS['dbname'] : 'cps';
@@ -58,7 +10,7 @@ function cps_msg_key() {
 }
 function cps_encrypt_text($plain) {
     $key = cps_msg_key();
-    $iv = cpsa_random_bytes(16);
+    $iv = random_bytes(16);
     $cipher = openssl_encrypt($plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
     return [base64_encode($cipher ?: ''), base64_encode($iv)];
 }
@@ -261,7 +213,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $dir = $root . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'avatars';
             if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
             $name = 'u'.$uid.'_'.bin2hex(random_bytes(6)).'.'.$ext;
-            $name = 'u'.$uid.'_'.bin2hex(cpsa_random_bytes(6)).'.'.$ext;
             $dest = $dir . DIRECTORY_SEPARATOR . $name;
             if (!move_uploaded_file($file['tmp_name'], $dest)) { echo json_encode(['success'=>false,'error'=>'Failed to save image']); exit(); }
             try {
@@ -281,7 +232,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             try {
                 $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, api_key_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
                 $raw = 'sk_' . bin2hex(random_bytes(16));
-                $raw = 'sk_' . bin2hex(cpsa_random_bytes(16));
                 $hash = password_hash($raw, PASSWORD_DEFAULT, ['cost'=>12]);
                 $stmt = $pdo->prepare("INSERT INTO api_keys (user_id, api_key_hash) VALUES (?, ?)");
                 $stmt->execute([$uid, $hash]);
@@ -472,7 +422,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $imageBinary = base64_decode($imageData);
                 
                 $filename = 'face_' . time() . '_' . bin2hex(random_bytes(4)) . '.png';
-                $filename = 'face_' . time() . '_' . bin2hex(cpsa_random_bytes(4)) . '.png';
                 $filepath = $facesDir . DIRECTORY_SEPARATOR . $filename;
                 
                 if (file_put_contents($filepath, $imageBinary)) {
@@ -677,9 +626,6 @@ $stmt = null;
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-detection@1.0.0/dist/face-detection.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    <script>
-        window.CPSA_MAP_API_KEY = <?php echo isset($MAP_API_KEY) && $MAP_API_KEY !== null ? "'" . htmlspecialchars($MAP_API_KEY, ENT_QUOTES) . "'" : "null"; ?>;
-    </script>
     <?php
     try {
         $colExists = false;
@@ -5961,7 +5907,8 @@ $stmt = null;
                     item.style.textAlign = 'left';
                     const loc = (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') ? `${Number(u.lat).toFixed(6)}, ${Number(u.lng).toFixed(6)}` : '—';
                     const dur = (u.duration ? String(u.duration) : '—');
-                    item.innerHTML = `<span><strong>${u.callsign || u.id}</strong><span style="color:#6b7280;margin-left:8px;font-size:12px;">${loc}</span></span><span class="badge badge-inactive">${dur}</span>`;
+                    const name = u.callsign || u.id || u.unit_id || '—';
+                    item.innerHTML = `<span><strong>${name}</strong><span style="color:#6b7280;margin-left:8px;font-size:12px;">${loc}</span></span><span class="badge badge-inactive">${dur}</span>`;
                     item.addEventListener('click', function(){ updateUnitInfo(u); });
                     listEl.appendChild(item);
                 });
@@ -5991,52 +5938,45 @@ $stmt = null;
             }catch(_){}
         }
         
+        var localCreatedUnits = [];
+        
+        var lastTempMarker = null;
+        function refreshTempMarkerLabel(){
+            try{
+                if (!lastTempMarker) return;
+                var csEl = document.getElementById('callsign-input');
+                var idEl = document.getElementById('unit-id-input');
+                var label = (csEl && csEl.value.trim()) ? csEl.value.trim() : (idEl && idEl.value.trim() ? idEl.value.trim() : '');
+                lastTempMarker.unbindTooltip();
+                lastTempMarker.bindTooltip(label, { permanent: false, direction: 'top' });
+            }catch(_){}
+        }
+        
         async function loadGPSUnits(){
             try{
-                const res = await fetch('api/gps_data.php', { credentials: 'same-origin' });
-                if (!res.ok) return;
+                const res = await fetch('api/gps_data.php?api_key=TEST_KEY_123', { credentials: 'include' });
+                if (!res.ok) {
+                    const allUnits = Array.isArray(localCreatedUnits) ? localCreatedUnits : [];
+                    renderUnitList(allUnits);
+                    updateMapUnitMarkers(allUnits);
+                    return;
+                }
                 const data = await res.json();
                 if (data && data.success) {
                     updateKPI(data.stats || {});
                     renderStatus(data.stats || {});
-                    renderUnitList(data.units || []);
-                    if (!window.CPSA_MAP_API_KEY) {
-                        if (data.units && data.units.length) {
-                            updateUnitInfo(data.units[0]);
-                            updateMapUnitMarkers(data.units);
-                        } else {
-                            updateMapUnitMarkers([]);
-                        }
-                    }
-                }
-            }catch(_){}
-        }
-        
-        async function loadGPSUnitsForMap(){
-            try{
-                if (!window.CPSA_MAP_API_KEY) return;
-                const res = await fetch('api/api_gps_tracking.php?action=get_units', {
-                    headers: { 'X-API-Key': window.CPSA_MAP_API_KEY }
-                });
-                if (!res.ok) return;
-                const data = await res.json();
-                if (data && data.success) {
-                    const units = Array.isArray(data.units) ? data.units : [];
-                    const normalized = units.map(function(u){
-                        return {
-                            id: u.unit_id || u.id,
-                            callsign: u.callsign || '',
-                            assignment: u.assignment || '',
-                            status: u.status || '',
-                            lat: typeof u.latitude !== 'undefined' ? Number(u.latitude) : (typeof u.lat !== 'undefined' ? Number(u.lat) : undefined),
-                            lng: typeof u.longitude !== 'undefined' ? Number(u.longitude) : (typeof u.lng !== 'undefined' ? Number(u.lng) : undefined),
-                            last_ping: u.last_ping || u.recorded_at || null,
-                            distance_today: typeof u.distance_today !== 'undefined' ? Number(u.distance_today) : 0
-                        };
+                    const remoteUnits = Array.isArray(data.units) ? data.units : [];
+                    const byId = {};
+                    remoteUnits.forEach(function(u){ if (u && (u.id || u.unit_id)) byId[String(u.id || u.unit_id)] = u; });
+                    localCreatedUnits.forEach(function(u){
+                        const key = String(u.id || u.unit_id || '');
+                        if (key && !byId[key]) { byId[key] = u; }
                     });
-                    if (normalized.length) {
-                        updateUnitInfo(normalized[0]);
-                        updateMapUnitMarkers(normalized);
+                    const allUnits = Object.values(byId);
+                    renderUnitList(allUnits);
+                    if (allUnits.length) {
+                        updateUnitInfo(allUnits[0]);
+                        updateMapUnitMarkers(allUnits);
                     } else {
                         updateMapUnitMarkers([]);
                     }
@@ -6140,7 +6080,11 @@ $stmt = null;
             const latEl2 = document.getElementById('latitude-input');
             const lngEl2 = document.getElementById('longitude-input');
             if (latEl2) latEl2.addEventListener('change', window.autoFillAssignmentFromLatLng);
-            if (lngEl2) lngEl2.addEventListener('change', window.autoFillAssignmentFromLatLng);
+        if (lngEl2) lngEl2.addEventListener('change', window.autoFillAssignmentFromLatLng);
+        const csEl3 = document.getElementById('callsign-input');
+        const idEl3 = document.getElementById('unit-id-input');
+        if (csEl3) csEl3.addEventListener('input', refreshTempMarkerLabel);
+        if (idEl3) idEl3.addEventListener('input', refreshTempMarkerLabel);
             window.autoFillLatLng();
             createUnitForm.addEventListener('submit', async function(e){
                 e.preventDefault();
@@ -6169,7 +6113,7 @@ $stmt = null;
                     const res = await fetch('api/gps_save.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
+                        credentials: 'include',
                         body: JSON.stringify(payload)
                     });
                     const data = await res.json();
@@ -6187,7 +6131,30 @@ $stmt = null;
                         if (lngEl) lngEl.value = '121.088000';
                         if (dateEl) dateEl.value = '';
                         if (timeEl) timeEl.value = '';
+                        localCreatedUnits = localCreatedUnits.filter(function(u){ return String(u.id||'') !== unitId; });
+                        localCreatedUnits.push({
+                            id: unitId,
+                            callsign: callsign,
+                            assignment: assignmentBase,
+                            lat: latitude,
+                            lng: longitude,
+                            duration: durationVal,
+                            type: unitType,
+                            distance_today: 0,
+                            last_ping: new Date().toISOString()
+                        });
                         loadGPSUnits();
+                        updateUnitInfo({
+                            id: unitId,
+                            callsign: callsign,
+                            assignment: assignmentBase,
+                            lat: latitude,
+                            lng: longitude,
+                            duration: durationVal,
+                            type: unitType,
+                            distance_today: 0,
+                            last_ping: new Date().toISOString()
+                        });
     
     function loadGoogleMapsAPI(key){
         return new Promise(function(resolve, reject){
@@ -6506,7 +6473,26 @@ $stmt = null;
                         if (typeof window.autoFillAssignmentFromLatLng === 'function') { await window.autoFillAssignmentFromLatLng(); }
                         const icon = type === 'Ronda' ? createRondaIcon(col) : createMobileIcon(col);
                         const marker = L.marker(e.latlng, { icon: icon }).addTo(pinLayer);
-                        marker.bindTooltip('Lat: ' + e.latlng.lat.toFixed(6) + ', Lon: ' + e.latlng.lng.toFixed(6), { permanent: false, direction: 'top' });
+                        lastTempMarker = marker;
+                        refreshTempMarkerLabel();
+                        marker.on('click', function(){
+                            var idEl = document.getElementById('unit-id-input');
+                            var csEl = document.getElementById('callsign-input');
+                            var durEl = document.getElementById('duration-input');
+                            var assignEl = document.getElementById('assignment-input');
+                            var u = {
+                                id: idEl ? idEl.value || '' : '',
+                                callsign: csEl ? csEl.value || '' : '',
+                                duration: durEl ? durEl.value || '' : '',
+                                type: type,
+                                assignment: assignEl ? assignEl.value || '' : '',
+                                lat: Number(e.latlng.lat),
+                                lng: Number(e.latlng.lng),
+                                distance_today: 0,
+                                last_ping: new Date().toISOString()
+                            };
+                            updateUnitInfo(u);
+                        });
                         await addStreetline(e.latlng.lng, e.latlng.lat);
                         const form = document.getElementById('create-unit-form');
                         if (form) { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -6721,9 +6707,6 @@ $stmt = null;
             if (typeof loadGPSUnits === 'function') {
                 loadGPSUnits();
             }
-            if (typeof loadGPSUnitsForMap === 'function') {
-                loadGPSUnitsForMap();
-            }
         }
         function loadLeafletCDN(){
             return new Promise(function(resolve, reject){
@@ -6895,12 +6878,18 @@ $stmt = null;
                 if (gpsMapCtx.type === 'leaflet') {
                     if (typeof L === 'undefined') return;
                     var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
-                    var t = (u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol')));
+                    var t = (u.unit_type ? String(u.unit_type) : (u.type ? String(u.type) : ''));
+                    if (!t) {
+                        var a = String(u.assignment ?? u.assignment_area ?? '').toLowerCase();
+                        if (a.includes('ronda') || a.includes('foot') || a.includes('walk')) t = 'Ronda';
+                        else t = 'Mobile Patrol';
+                    }
                     var html = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
                     var icon = L.divIcon({ className:'poi-icon', html: html, iconSize:[28,28], iconAnchor:[14,14] });
                     if (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
                         var m = L.marker([Number(u.lat), Number(u.lng)], { icon: icon, title: u.callsign || String(u.id || '') }).addTo(gpsMapCtx.map);
-                        if (u.callsign) { m.bindTooltip(u.callsign, { permanent:false, direction:'top' }); }
+                        var label = u.callsign || String(u.id || u.unit_id || '');
+                        if (label) { m.bindTooltip(label, { permanent:false, direction:'top' }); }
                         m.on('click', function(){
                             updateUnitInfo(u);
                             gpsMapCtx.map.setView([Number(u.lat), Number(u.lng)], Math.max(gpsMapCtx.map.getZoom(), 17));
@@ -6911,7 +6900,12 @@ $stmt = null;
                     if (gpsMapCtx.AdvancedMarkerElement && typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
                         var container = document.createElement('div');
                         var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
-                        var t = (u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol')));
+                        var t = (u.unit_type ? String(u.unit_type) : (u.type ? String(u.type) : ''));
+                        if (!t) {
+                            var a = String(u.assignment ?? u.assignment_area ?? '').toLowerCase();
+                            if (a.includes('ronda') || a.includes('foot') || a.includes('walk')) t = 'Ronda';
+                            else t = 'Mobile Patrol';
+                        }
                         container.innerHTML = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
                         var marker = new gpsMapCtx.AdvancedMarkerElement({ map: gpsMapCtx.map, position: { lat: Number(u.lat), lng: Number(u.lng) }, content: container, title: u.callsign || String(u.id || '') });
                         marker.addListener('click', function(){
