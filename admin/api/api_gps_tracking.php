@@ -1,9 +1,15 @@
 <?php
 // api_gps_tracking.php
 // GPS Tracking API - For map integration
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
+// Log errors to a file
+ini_set('log_errors', 1);
+ini_set('error_log', '/tmp/php_errors.log');
 session_start();
-require_once 'config/db_connection.php';
+require_once '../../config/db_connection.php';
 
 // Enable CORS for API access
 header('Access-Control-Allow-Origin: *');
@@ -19,14 +25,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // API Key validation function
 function validateApiKey($pdo, $apiKey) {
     try {
-        $stmt = $pdo->prepare("SELECT u.id, u.first_name, u.last_name, u.role 
-                              FROM api_keys ak 
-                              JOIN users u ON ak.user_id = u.id 
-                              WHERE ak.api_key_hash = ?");
-        $stmt->execute([$apiKey]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        return $row ? $row : false;
+        $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            api_key_hash VARCHAR(255) NOT NULL,
+            scope VARCHAR(32) DEFAULT 'GENERAL',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $stmt = $pdo->prepare("SELECT ak.api_key_hash, u.id, u.first_name, u.last_name, u.role
+                               FROM api_keys ak
+                               JOIN users u ON ak.user_id = u.id
+                               WHERE ak.scope = 'MAP'");
+        $stmt->execute();
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (!empty($row['api_key_hash']) && password_verify($apiKey, $row['api_key_hash'])) {
+                unset($row['api_key_hash']);
+                return $row;
+            }
+        }
+        return false;
     } catch (Exception $e) {
         return false;
     }
@@ -44,12 +61,15 @@ function handleApiRequest($pdo) {
     }
     
     // Validate API key
+    ensureApiKeysSchema($pdo);
     $user = validateApiKey($pdo, $apiKey);
     if (!$user) {
         http_response_code(401);
         echo json_encode(['error' => 'Invalid API key']);
         return;
     }
+
+    ensureGpsSchema($pdo);
     
     // Check if user has permission for GPS tracking
     $allowedRoles = ['CAPTAIN', 'SECRETARY', 'TANOD'];
@@ -117,64 +137,15 @@ function handlePostRequest($pdo, $user) {
 // Get all GPS units
 function getGpsUnits($pdo) {
     try {
-        // Check if gps_units table exists, create if not
-        $pdo->exec("CREATE TABLE IF NOT EXISTS gps_units (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            unit_id VARCHAR(50) UNIQUE NOT NULL,
-            callsign VARCHAR(50) NOT NULL,
-            assignment VARCHAR(255) DEFAULT NULL,
-            status VARCHAR(50) DEFAULT 'Stationary',
-            latitude DECIMAL(10, 6) DEFAULT 14.697000,
-            longitude DECIMAL(10, 6) DEFAULT 121.088000,
-            speed VARCHAR(20) DEFAULT '0 km/h',
-            battery VARCHAR(20) DEFAULT '100%',
-            distance_today VARCHAR(20) DEFAULT '0 km',
-            last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            created_by INT DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_unit_id (unit_id),
-            INDEX idx_status (status)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        
         $stmt = $pdo->prepare("SELECT 
             unit_id, callsign, assignment, status, 
             latitude, longitude, speed, battery, 
-            distance_today, last_update 
+            distance_today, last_ping 
             FROM gps_units 
-            WHERE last_update >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-            ORDER BY last_update DESC");
+            WHERE is_active = 1
+            ORDER BY last_ping DESC");
         $stmt->execute();
         $units = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Add some mock data if table is empty
-        if (empty($units)) {
-            $units = [
-                [
-                    'unit_id' => 'UNIT-001',
-                    'callsign' => 'Alpha One',
-                    'assignment' => 'Zone 1 - Main Road',
-                    'status' => 'On Patrol',
-                    'latitude' => 14.697000,
-                    'longitude' => 121.088000,
-                    'speed' => '25 km/h',
-                    'battery' => '85%',
-                    'distance_today' => '45 km',
-                    'last_update' => date('Y-m-d H:i:s')
-                ],
-                [
-                    'unit_id' => 'UNIT-002',
-                    'callsign' => 'Bravo Two',
-                    'assignment' => 'Zone 2 - Residential Area',
-                    'status' => 'Stationary',
-                    'latitude' => 14.698500,
-                    'longitude' => 121.089000,
-                    'speed' => '0 km/h',
-                    'battery' => '100%',
-                    'distance_today' => '12 km',
-                    'last_update' => date('Y-m-d H:i:s', strtotime('-1 hour'))
-                ]
-            ];
-        }
         
         echo json_encode([
             'success' => true,
@@ -211,21 +182,20 @@ function getGpsUnit($pdo, $unitId) {
 // Get location history
 function getGpsHistory($pdo, $unitId, $hours = 24) {
     try {
-        // Check if location_history table exists
-        $pdo->exec("CREATE TABLE IF NOT EXISTS location_history (
+        $pdo->exec("CREATE TABLE IF NOT EXISTS gps_history (
             id INT AUTO_INCREMENT PRIMARY KEY,
             unit_id VARCHAR(50) NOT NULL,
             latitude DECIMAL(10, 6) NOT NULL,
             longitude DECIMAL(10, 6) NOT NULL,
-            speed VARCHAR(20) DEFAULT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_unit_time (unit_id, timestamp)
+            speed DECIMAL(5,2) DEFAULT 0.00,
+            recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_unit_time (unit_id, recorded_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         
-        $stmt = $pdo->prepare("SELECT latitude, longitude, speed, timestamp 
-                              FROM location_history 
-                              WHERE unit_id = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-                              ORDER BY timestamp ASC");
+        $stmt = $pdo->prepare("SELECT latitude, longitude, speed, recorded_at 
+                              FROM gps_history 
+                              WHERE unit_id = ? AND recorded_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+                              ORDER BY recorded_at ASC");
         $stmt->execute([$unitId, $hours]);
         $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -241,7 +211,7 @@ function updateUnitLocation($pdo, $data, $userId) {
         $unitId = $data['unit_id'] ?? '';
         $lat = floatval($data['latitude'] ?? 0);
         $lng = floatval($data['longitude'] ?? 0);
-        $speed = $data['speed'] ?? '0 km/h';
+        $speed = isset($data['speed']) ? floatval($data['speed']) : 0;
         $status = $data['status'] ?? 'Stationary';
         
         if (empty($unitId)) {
@@ -250,14 +220,12 @@ function updateUnitLocation($pdo, $data, $userId) {
             return;
         }
         
-        // Update main units table
         $stmt = $pdo->prepare("UPDATE gps_units 
-                              SET latitude = ?, longitude = ?, speed = ?, status = ?, last_update = NOW()
+                              SET latitude = ?, longitude = ?, speed = ?, status = ?, last_ping = NOW()
                               WHERE unit_id = ?");
         $stmt->execute([$lat, $lng, $speed, $status, $unitId]);
         
-        // Add to history
-        $stmt = $pdo->prepare("INSERT INTO location_history (unit_id, latitude, longitude, speed) 
+        $stmt = $pdo->prepare("INSERT INTO gps_history (unit_id, latitude, longitude, speed) 
                               VALUES (?, ?, ?, ?)");
         $stmt->execute([$unitId, $lat, $lng, $speed]);
         
@@ -291,8 +259,8 @@ function createGpsUnit($pdo, $data) {
         }
         
         $stmt = $pdo->prepare("INSERT INTO gps_units 
-                              (unit_id, callsign, assignment, status, latitude, longitude, created_by)
-                              VALUES (?, ?, ?, ?, ?, ?, ?)
+                              (unit_id, callsign, assignment, status, latitude, longitude, last_ping, is_active, created_by)
+                              VALUES (?, ?, ?, ?, ?, ?, NOW(), 1, ?)
                               ON DUPLICATE KEY UPDATE
                               callsign = VALUES(callsign),
                               assignment = VALUES(assignment),
@@ -322,7 +290,7 @@ function updateUnitStatus($pdo, $data) {
             return;
         }
         
-        $stmt = $pdo->prepare("UPDATE gps_units SET status = ?, last_update = NOW() WHERE unit_id = ?");
+        $stmt = $pdo->prepare("UPDATE gps_units SET status = ?, last_ping = NOW() WHERE unit_id = ?");
         $stmt->execute([$status, $unitId]);
         
         echo json_encode([
@@ -339,4 +307,62 @@ function updateUnitStatus($pdo, $data) {
 
 // Run the API
 handleApiRequest($pdo);
+
+function ensureApiKeysSchema($pdo) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        api_key_hash VARCHAR(255) NOT NULL,
+        scope VARCHAR(32) DEFAULT 'GENERAL',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    try {
+        $chk = $pdo->query("SHOW COLUMNS FROM api_keys LIKE 'scope'");
+        if (!$chk || !$chk->fetch(PDO::FETCH_ASSOC)) {
+            $pdo->exec("ALTER TABLE api_keys ADD COLUMN scope VARCHAR(32) DEFAULT 'GENERAL'");
+        }
+    } catch (Exception $e) {}
+}
+
+function ensureGpsSchema($pdo) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gps_units (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        unit_id VARCHAR(50) UNIQUE NOT NULL,
+        callsign VARCHAR(50) NOT NULL,
+        assignment VARCHAR(255) DEFAULT NULL,
+        status VARCHAR(50) DEFAULT 'Stationary',
+        latitude DECIMAL(10,6) DEFAULT 0.000000,
+        longitude DECIMAL(10,6) DEFAULT 0.000000,
+        speed DECIMAL(5,2) DEFAULT 0.00,
+        battery INT DEFAULT 100,
+        distance_today DECIMAL(8,2) DEFAULT 0.00,
+        last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        is_active TINYINT(1) DEFAULT 1,
+        created_by INT DEFAULT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_unit_id (unit_id),
+        INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $cols = ['speed' => 'DECIMAL(5,2) DEFAULT 0.00', 'battery' => 'INT DEFAULT 100', 'distance_today' => 'DECIMAL(8,2) DEFAULT 0.00', 'last_ping' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'is_active' => 'TINYINT(1) DEFAULT 1'];
+    foreach ($cols as $name => $def) {
+        $chk = $pdo->prepare("SHOW COLUMNS FROM gps_units LIKE ?");
+        $chk->execute([$name]);
+        if (!$chk->fetch()) {
+            $pdo->exec("ALTER TABLE gps_units ADD COLUMN $name $def");
+        }
+    }
+    $chkPing = $pdo->query("SHOW COLUMNS FROM gps_units LIKE 'last_update'");
+    if ($chkPing->fetch()) {
+        $pdo->exec("ALTER TABLE gps_units CHANGE COLUMN last_update last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+    }
+    $pdo->exec("CREATE TABLE IF NOT EXISTS gps_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        unit_id VARCHAR(50) NOT NULL,
+        latitude DECIMAL(10,6) NOT NULL,
+        longitude DECIMAL(10,6) NOT NULL,
+        speed DECIMAL(5,2) DEFAULT 0.00,
+        recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_unit_time (unit_id, recorded_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
 ?>

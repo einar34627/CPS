@@ -2,6 +2,54 @@
 
 session_start();
 require_once '../config/db_connection.php';
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+function cpsa_random_bytes($len){
+    if (function_exists('random_bytes')) { return random_bytes($len); }
+    if (function_exists('openssl_random_pseudo_bytes')) {
+        $strong = false;
+        $b = openssl_random_pseudo_bytes($len, $strong);
+        if ($b !== false) { return $b; }
+    }
+    $out = '';
+    for ($i = 0; $i < $len; $i++) { $out .= chr(mt_rand(0,255)); }
+    return $out;
+}
+
+try {
+    if (isset($_SESSION['user_id'])) {
+        $uidForKey = (int)$_SESSION['user_id'];
+        $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            api_key_hash VARCHAR(255) NOT NULL,
+            scope VARCHAR(32) DEFAULT 'GENERAL',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        try {
+            $chkScope = $pdo->query("SHOW COLUMNS FROM api_keys LIKE 'scope'");
+            if (!$chkScope || !$chkScope->fetch(PDO::FETCH_ASSOC)) {
+                $pdo->exec("ALTER TABLE api_keys ADD COLUMN scope VARCHAR(32) DEFAULT 'GENERAL'");
+            }
+        } catch (Exception $e) {}
+        $stmtDel = $pdo->prepare("DELETE FROM api_keys WHERE user_id = ? AND scope = 'MAP'");
+        $stmtDel->execute([$uidForKey]);
+        if (function_exists('password_hash')) {
+            $MAP_API_KEY = 'sk_map_' . bin2hex(cpsa_random_bytes(16));
+            $MAP_API_HASH = password_hash($MAP_API_KEY, PASSWORD_DEFAULT, ['cost' => 12]);
+            $stmtIns = $pdo->prepare("INSERT INTO api_keys (user_id, api_key_hash, scope) VALUES (?, ?, 'MAP')");
+            $stmtIns->execute([$uidForKey, $MAP_API_HASH]);
+        } else {
+            $MAP_API_KEY = null;
+        }
+    } else {
+        $MAP_API_KEY = null;
+    }
+} catch (Exception $e) {
+    $MAP_API_KEY = null;
+}
 
 function cps_msg_key() {
     $dbn = isset($GLOBALS['dbname']) ? (string)$GLOBALS['dbname'] : 'cps';
@@ -10,7 +58,7 @@ function cps_msg_key() {
 }
 function cps_encrypt_text($plain) {
     $key = cps_msg_key();
-    $iv = random_bytes(16);
+    $iv = cpsa_random_bytes(16);
     $cipher = openssl_encrypt($plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
     return [base64_encode($cipher ?: ''), base64_encode($iv)];
 }
@@ -213,6 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $dir = $root . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'avatars';
             if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
             $name = 'u'.$uid.'_'.bin2hex(random_bytes(6)).'.'.$ext;
+            $name = 'u'.$uid.'_'.bin2hex(cpsa_random_bytes(6)).'.'.$ext;
             $dest = $dir . DIRECTORY_SEPARATOR . $name;
             if (!move_uploaded_file($file['tmp_name'], $dest)) { echo json_encode(['success'=>false,'error'=>'Failed to save image']); exit(); }
             try {
@@ -232,6 +281,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             try {
                 $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, api_key_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
                 $raw = 'sk_' . bin2hex(random_bytes(16));
+                $raw = 'sk_' . bin2hex(cpsa_random_bytes(16));
                 $hash = password_hash($raw, PASSWORD_DEFAULT, ['cost'=>12]);
                 $stmt = $pdo->prepare("INSERT INTO api_keys (user_id, api_key_hash) VALUES (?, ?)");
                 $stmt->execute([$uid, $hash]);
@@ -422,6 +472,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $imageBinary = base64_decode($imageData);
                 
                 $filename = 'face_' . time() . '_' . bin2hex(random_bytes(4)) . '.png';
+                $filename = 'face_' . time() . '_' . bin2hex(cpsa_random_bytes(4)) . '.png';
                 $filepath = $facesDir . DIRECTORY_SEPARATOR . $filename;
                 
                 if (file_put_contents($filepath, $imageBinary)) {
@@ -626,6 +677,9 @@ $stmt = null;
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-detection@1.0.0/dist/face-detection.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script>
+        window.CPSA_MAP_API_KEY = <?php echo isset($MAP_API_KEY) && $MAP_API_KEY !== null ? "'" . htmlspecialchars($MAP_API_KEY, ENT_QUOTES) . "'" : "null"; ?>;
+    </script>
     <?php
     try {
         $colExists = false;
@@ -5946,9 +6000,43 @@ $stmt = null;
                     updateKPI(data.stats || {});
                     renderStatus(data.stats || {});
                     renderUnitList(data.units || []);
-                    if (data.units && data.units.length) {
-                        updateUnitInfo(data.units[0]);
-                        updateMapUnitMarkers(data.units);
+                    if (!window.CPSA_MAP_API_KEY) {
+                        if (data.units && data.units.length) {
+                            updateUnitInfo(data.units[0]);
+                            updateMapUnitMarkers(data.units);
+                        } else {
+                            updateMapUnitMarkers([]);
+                        }
+                    }
+                }
+            }catch(_){}
+        }
+        
+        async function loadGPSUnitsForMap(){
+            try{
+                if (!window.CPSA_MAP_API_KEY) return;
+                const res = await fetch('api/api_gps_tracking.php?action=get_units', {
+                    headers: { 'X-API-Key': window.CPSA_MAP_API_KEY }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.success) {
+                    const units = Array.isArray(data.units) ? data.units : [];
+                    const normalized = units.map(function(u){
+                        return {
+                            id: u.unit_id || u.id,
+                            callsign: u.callsign || '',
+                            assignment: u.assignment || '',
+                            status: u.status || '',
+                            lat: typeof u.latitude !== 'undefined' ? Number(u.latitude) : (typeof u.lat !== 'undefined' ? Number(u.lat) : undefined),
+                            lng: typeof u.longitude !== 'undefined' ? Number(u.longitude) : (typeof u.lng !== 'undefined' ? Number(u.lng) : undefined),
+                            last_ping: u.last_ping || u.recorded_at || null,
+                            distance_today: typeof u.distance_today !== 'undefined' ? Number(u.distance_today) : 0
+                        };
+                    });
+                    if (normalized.length) {
+                        updateUnitInfo(normalized[0]);
+                        updateMapUnitMarkers(normalized);
                     } else {
                         updateMapUnitMarkers([]);
                     }
@@ -6632,6 +6720,9 @@ $stmt = null;
             gpsMapReady = true;
             if (typeof loadGPSUnits === 'function') {
                 loadGPSUnits();
+            }
+            if (typeof loadGPSUnitsForMap === 'function') {
+                loadGPSUnitsForMap();
             }
         }
         function loadLeafletCDN(){
