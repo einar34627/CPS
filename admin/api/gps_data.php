@@ -42,7 +42,7 @@ elseif (isset($_POST['api_key'])) {
     $api_key = $_POST['api_key'];
 }
 
-// Define valid API keys (IMPORTANT: Change these for production!)
+// Define valid API keys (CHANGE THESE FOR PRODUCTION!)
 $valid_api_keys = [
     'GPS_SYSTEM_2024_KEY_ABC123XYZ' => [
         'name' => 'Main Command System',
@@ -86,9 +86,9 @@ $key_info = validateApiKey($api_key, $valid_api_keys);
 // If API key is valid, skip session check
 if ($key_info) {
     // API key is valid - allow access
-    // Optional: Log API access or implement rate limiting here
+    $client_name = $key_info['name'];
     
-    // Simple rate limiting check (in-memory, for production use database)
+    // Simple rate limiting (in-memory, for production use database)
     $rate_limit_key = 'api_rate_' . md5($api_key);
     if (!isset($_SESSION[$rate_limit_key])) {
         $_SESSION[$rate_limit_key] = [
@@ -121,23 +121,27 @@ if ($key_info) {
     }
 }
 // If no valid API key, check for session authentication
-elseif (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Unauthorized. Provide a valid API key or login.',
-        'api_key_help' => 'Add ?api_key=YOUR_KEY to URL or use Authorization header'
-    ]);
-    exit();
+else {
+    session_start();
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unauthorized. Provide a valid API key or login.',
+            'api_key_help' => 'Add ?api_key=TEST_KEY_123 to URL or use Authorization header'
+        ]);
+        exit();
+    }
 }
 
 // ============================================
-// MAIN DATA FETCHING LOGIC (Your existing code)
+// MAIN DATA FETCHING LOGIC (UPDATED FOR YOUR SCHEMA)
 // ============================================
 
 date_default_timezone_set('Asia/Manila');
 
 try {
+    // UPDATED QUERY - Using correct column names from your gps_units table
     $stmt = $pdo->query("
         SELECT 
             unit_id as id,
@@ -146,11 +150,14 @@ try {
             latitude as lat,
             longitude as lng,
             status,
-            speed,
-            battery,
-            distance_today,
+            -- Removed: speed (column doesn't exist)
+            -- Removed: battery (column doesn't exist)
+            -- Removed: distance_today (column doesn't exist)
             last_ping,
-            TIMESTAMPDIFF(SECOND, last_ping, NOW()) as seconds_since_ping
+            TIMESTAMPDIFF(SECOND, last_ping, NOW()) as seconds_since_ping,
+            assignment_area,
+            unit_type,
+            duration
         FROM gps_units 
         WHERE is_active = 1
         ORDER BY callsign
@@ -164,9 +171,14 @@ try {
         } else {
             $unit['last_ping'] = null;
         }
+        
+        // Add placeholder values for missing columns (for backward compatibility)
+        $unit['speed'] = 0; // Default value since column doesn't exist
+        $unit['battery'] = 100; // Default value since column doesn't exist
+        $unit['distance_today'] = 0; // Default value since column doesn't exist
     }
     
-    // Additional statistics
+    // Additional statistics based on status
     $onPatrol = count(array_filter($units, fn($u) => $u['status'] === 'On Patrol'));
     $responding = count(array_filter($units, fn($u) => $u['status'] === 'Responding'));
     $stationary = count(array_filter($units, fn($u) => $u['status'] === 'Stationary'));
@@ -188,12 +200,6 @@ try {
         $offlineDevices = 0;
     }
     
-    // Calculate total distance (safe calculation)
-    $totalDistance = 0;
-    foreach ($units as $unit) {
-        $totalDistance += floatval($unit['distance_today'] ?? 0);
-    }
-    
     // Calculate statistics
     $stats = [
         'total_devices' => $totalDevices,
@@ -204,21 +210,27 @@ try {
         'responding' => $responding,
         'stationary' => $stationary,
         'alerts' => $alerts,
-        'total_distance' => round($totalDistance, 2),
         'timestamp' => date(DATE_ATOM),
-        'timezone' => 'Asia/Manila'
+        'timezone' => 'Asia/Manila',
+        'units_online' => count($units)
     ];
     
     // Add API info if accessed via API key
     $response = [
         'success' => true,
         'units' => $units,
-        'stats' => $stats
+        'stats' => $stats,
+        'schema_info' => [
+            'note' => 'speed, battery, distance_today columns are placeholders (not in database)',
+            'actual_columns' => ['unit_id', 'callsign', 'assignment', 'latitude', 'longitude', 'status', 'last_ping', 'assignment_area', 'unit_type', 'duration']
+        ]
     ];
     
-    if ($key_info) {
-        $response['api_client'] = $key_info['name'];
-        $response['rate_limit_remaining'] = $key_info['rate_limit'] - $_SESSION[$rate_limit_key]['count'];
+    if (isset($client_name)) {
+        $response['api_client'] = $client_name;
+        if (isset($_SESSION[$rate_limit_key])) {
+            $response['rate_limit_remaining'] = $key_info['rate_limit'] - $_SESSION[$rate_limit_key]['count'];
+        }
     }
     
     echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
@@ -228,7 +240,8 @@ try {
     echo json_encode([
         'success' => false,
         'error' => 'Database error',
-        'message' => $e->getMessage()
+        'message' => $e->getMessage(),
+        'sql_state' => $e->getCode()
     ], JSON_UNESCAPED_UNICODE);
 }
 ?>
