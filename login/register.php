@@ -1061,6 +1061,76 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 gap: 22px;
             }
         }
+        @media (max-width: 600px) {
+            body {
+                background: var(--card-bg);
+            }
+            .bg-decoration,
+            .watermark-logo,
+            .logo-left {
+                display: none;
+            }
+            .back-button {
+                top: calc(12px + env(safe-area-inset-top));
+                left: 12px;
+                padding: 10px 14px;
+                font-size: 14px;
+            }
+            .dark-mode-toggle {
+                top: calc(12px + env(safe-area-inset-top));
+                right: 12px;
+                width: 42px;
+                height: 42px;
+                font-size: 18px;
+            }
+            .register-container {
+                position: relative;
+                right: auto;
+                top: auto;
+                transform: none;
+                width: 100%;
+                max-width: none;
+                border-radius: 16px;
+                padding: 20px 16px;
+                margin: 80px auto 24px;
+                box-shadow: none;
+                border: 0;
+                max-height: none;
+                overflow: visible;
+            }
+            .register-header h2 {
+                font-size: 24px;
+            }
+            .register-header p {
+                font-size: 13px;
+            }
+            .form-row {
+                flex-direction: column;
+                gap: 12px;
+            }
+            .form-group {
+                margin-bottom: 14px;
+            }
+            .form-group input,
+            .form-group select,
+            .form-group textarea {
+                font-size: 16px;
+                padding: 14px 16px 14px 44px;
+                border-radius: 12px;
+            }
+            .password-toggle {
+                right: 14px;
+            }
+            .btn-primary {
+                padding: 14px;
+                border-radius: 12px;
+                font-size: 16px;
+            }
+            .login-link,
+            .footer {
+                font-size: 12px;
+            }
+        }
     </style>
 </head>
 <body>

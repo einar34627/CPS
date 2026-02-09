@@ -1062,13 +1062,51 @@ function createMobileIconHtml(ring){
     var c = ring || '#2563eb';
     return "<div style='width:28px;height:28px;border-radius:50%;background:#ffffff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.25);border:2px solid "+c+"'><svg width='18' height='18' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><rect x='4' y='8' width='14' height='7' rx='1.5' fill='#111827'></rect><rect x='12' y='9' width='5' height='3' fill='#ffffff'></rect><circle cx='8' cy='16' r='1.6' fill='#111827'></circle><circle cx='15' cy='16' r='1.6' fill='#111827'></circle></svg></div>";
 }
+function pointInPolygon(pt, poly){
+    var x = pt[0], y = pt[1];
+    var inside = false;
+    var coords = Array.isArray(poly[0][0]) ? poly[0] : poly;
+    for (var i=0, j=coords.length-1; i<coords.length; j=i++){
+        var xi = coords[i][0], yi = coords[i][1];
+        var xj = coords[j][0], yj = coords[j][1];
+        var intersect = ((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi+0.0000001)+xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+function getZoneColorForLngLat(lng, lat){
+    try{
+        var features = (window.zoningData && Array.isArray(window.zoningData.features)) ? window.zoningData.features : null;
+        if (!features) return null;
+        var pt = [lng, lat];
+        for (var i=0;i<features.length;i++){
+            var f = features[i];
+            var coords = f && f.geometry && f.geometry.coordinates;
+            if (!coords) continue;
+            var rings = Array.isArray(coords[0][0]) ? coords : [coords];
+            for (var r=0;r<rings.length;r++){
+                if (pointInPolygon(pt, rings[r])) {
+                    var style = getZoningStyle(f);
+                    return style && style.fillColor ? style.fillColor : null;
+                }
+            }
+        }
+        return null;
+    }catch(_){ return null; }
+}
 function upsertUnitMarker(u){
     const id = u.id || u.unit_id;
     const lat = parseFloat(u.lat ?? u.latitude);
     const lng = parseFloat(u.lng ?? u.longitude);
     if (!isFinite(lat) || !isFinite(lng) || !id) return;
-    const ring = statusColor(u.status);
-    const typeGuess = u.type ? String(u.type) : ((String(u.assignment || '').includes('Ronda')) ? 'Ronda' : ((String(u.assignment || '').includes('Mobile Patrol')) ? 'Mobile Patrol' : 'Mobile Patrol'));
+    const zoneRing = getZoneColorForLngLat(lng, lat);
+    const ring = zoneRing || statusColor(u.status);
+    const baseType = u.unit_type ? String(u.unit_type) : (u.type ? String(u.type) : '');
+    let typeGuess = baseType;
+    if (!typeGuess) {
+        const a = String(u.assignment ?? u.assignment_area ?? '').toLowerCase();
+        typeGuess = (a.includes('ronda') || a.includes('foot') || a.includes('walk')) ? 'Ronda' : 'Mobile Patrol';
+    }
     const html = typeGuess === 'Ronda' ? createRondaIconHtml(ring) : createMobileIconHtml(ring);
     const icon = L.divIcon({ className: 'poi-icon', html, iconSize: [28,28], iconAnchor: [14,14] });
     let m = gpsMarkers.get(id);

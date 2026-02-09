@@ -2794,7 +2794,10 @@ $stmt = null;
                         </div>
                         <div>
                             <div class="card">
-                                <h2 class="card-title">Map</h2>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <h2 class="card-title">Map</h2>
+                                    <button type="button" class="secondary-button" id="gps-refresh-btn">Refresh Map</button>
+                                </div>
                                 <div style="margin-top:8px;">
                                     <div id="gps-leaflet-map" style="width:100%;height:560px;border:0;border-radius:12px;background:transparent;"></div>
                                 </div>
@@ -5952,13 +5955,15 @@ $stmt = null;
             }catch(_){}
         }
         
-        async function loadGPSUnits(){
+        async function loadGPSUnits(opts){
             try{
-                const res = await fetch('api/gps_data.php?api_key=TEST_KEY_123', { credentials: 'include' });
+                var url = 'api/gps_data.php?api_key=TEST_KEY_123';
+                if (opts && opts.force) { url += '&ts=' + Date.now(); }
+                const res = await fetch(url, { credentials: 'include', cache: (opts && opts.force) ? 'no-store' : 'default' });
                 if (!res.ok) {
                     const allUnits = Array.isArray(localCreatedUnits) ? localCreatedUnits : [];
                     renderUnitList(allUnits);
-                    updateMapUnitMarkers(allUnits);
+                    updateMapUnitMarkers(allUnits, { authoritative: false });
                     return;
                 }
                 const data = await res.json();
@@ -6143,6 +6148,8 @@ $stmt = null;
                             distance_today: 0,
                             last_ping: new Date().toISOString()
                         });
+                        updateMapUnitMarkers(localCreatedUnits, { authoritative: false });
+                        renderUnitList(localCreatedUnits);
                         loadGPSUnits();
                         updateUnitInfo({
                             id: unitId,
@@ -6192,16 +6199,32 @@ $stmt = null;
             });
         }
         
+        (function(){
+            const btn = document.getElementById('gps-refresh-btn');
+            if (btn) {
+                btn.addEventListener('click', async function(){
+                    try{
+                        if (gpsUnitsLayer && typeof gpsUnitsLayer.clearLayers === 'function') { gpsUnitsLayer.clearLayers(); }
+                        gpsMarkersById.forEach(function(m){
+                            try{
+                                if (gpsUnitsLayer) { gpsUnitsLayer.removeLayer(m); }
+                                else if (m && typeof m.remove === 'function') { m.remove(); }
+                            }catch(_){}
+                        });
+                        gpsMarkersById.clear();
+                        await loadGPSUnits({ force: true });
+                    }catch(_){}
+                });
+            }
+        })();
+        
         // loadGPSUnits();
         
         async function initCommonwealthMap(){
             const el = document.getElementById('gps-leaflet-map');
             if (!el) return;
-            
-            // Check if map is already initialized
-            if (el._leaflet_id) {
-                return; 
-            }
+            let map = (gpsMapCtx && gpsMapCtx.map) ? gpsMapCtx.map : null;
+            const already = !!el._leaflet_id;
 
             if (!window.L || !L.map || !window.turf) {
                 await new Promise((resolve, reject) => {
@@ -6229,9 +6252,20 @@ $stmt = null;
                 });
             }
 
-            const map = L.map('gps-leaflet-map');
-            gpsMapCtx = { type: 'leaflet', map: map, markers: [] };
+            if (!already || !map) {
+                map = L.map('gps-leaflet-map');
+                gpsMapCtx = { type: 'leaflet', map: map, markers: [] };
+            } else {
+                gpsMapCtx.type = 'leaflet';
+            }
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO', maxZoom: 19 }).addTo(map);
+            if (!map.getPane('gps-markers')) {
+                map.createPane('gps-markers');
+                map.getPane('gps-markers').style.zIndex = 650;
+            }
+            if (!gpsUnitsLayer) {
+                gpsUnitsLayer = L.layerGroup({ pane: 'gps-markers' }).addTo(map);
+            }
             
     const commonwealthCoords = [[121.083089,14.709909],[121.0827319,14.7086933],[121.082621,14.7083025],[121.082477,14.7078641],[121.0823004,14.7073802],[121.0821198,14.7069657],[121.0818147,14.7059143],[121.0815905,14.7051927],[121.0815014,14.7048893],[121.0813675,14.704569],[121.0812002,14.7041845],[121.080837,14.7041825],[121.0795816,14.704164],[121.0777782,14.7041727],[121.0771962,14.7041883],[121.0770465,14.7040385],[121.0767196,14.7038143],[121.0764196,14.7036652],[121.0762954,14.7036316],[121.0756248,14.7034504],[121.0753926,14.703369],[121.0751716,14.7032915],[121.0749029,14.7031676],[121.0746963,14.7030288],[121.0741843,14.7030437],[121.0742259,14.7028376],[121.0742487,14.7027871],[121.0740021,14.7025363],[121.0737081,14.702249],[121.0737537,14.7021699],[121.0734353,14.7017435],[121.0728592,14.7006421],[121.0728041,14.7002749],[121.0727533,14.6999815],[121.0727274,14.699677],[121.0726916,14.6994613],[121.0723715,14.6986078],[121.07174,14.696937],[121.0714422,14.6962263],[121.0709099,14.6948733],[121.0701216,14.6936084],[121.0699625,14.6934091],[121.0696031,14.6928864],[121.075253,14.6933259],[121.0773019,14.6932403],[121.0792747,14.6932472],[121.0807457,14.693322],[121.0860302,14.6932916],[121.0873239,14.6932842],[121.0928632,14.6932789],[121.0928967,14.693922],[121.0929047,14.6949282],[121.0945421,14.6965876],[121.0945856,14.6966323],[121.0939586,14.6971992],[121.0923053,14.6987895],[121.0913908,14.6997168],[121.0910747,14.6999553],[121.0908265,14.700101],[121.0905641,14.7002206],[121.0901125,14.700319],[121.089683,14.7003204],[121.0893063,14.7002606],[121.0888875,14.7001514],[121.0882377,14.6999812],[121.0878347,14.6998756],[121.0877497,14.6999409],[121.0878517,14.7000567],[121.0879446,14.7001603],[121.0880872,14.7003187],[121.0884299,14.7007282],[121.0885158,14.7008171],[121.0886613,14.7008878],[121.0891231,14.7010617],[121.0892205,14.7011234],[121.0892798,14.701238],[121.0893023,14.7013282],[121.0893156,14.7014093],[121.0893191,14.7014306],[121.089328,14.7015229],[121.089351,14.7017641],[121.089355,14.7018396],[121.0893579,14.7019005],[121.0893599,14.7019963],[121.0893598,14.7020426],[121.0893603,14.7021353],[121.089362,14.7022724],[121.0893621,14.7023804],[121.0893489,14.7025146],[121.0893315,14.7025806],[121.0892668,14.7027123],[121.0891752,14.7028696],[121.089117,14.7029694],[121.0890545,14.7030846],[121.0889751,14.7032301],[121.0889519,14.7032712],[121.088917,14.7033333],[121.0888896,14.7033806],[121.088729,14.7036547],[121.0886155,14.7038624],[121.0885581,14.7039989],[121.0885088,14.704127],[121.0884541,14.7043004],[121.0884169,14.7044326],[121.0883021,14.7049157],[121.08822,14.7052547],[121.0881398,14.7056096],[121.0880922,14.7058778],[121.0880932,14.7060099],[121.0881,14.7060914],[121.0881116,14.7061506],[121.0882223,14.7063197],[121.0883329,14.7064466],[121.0887232,14.7068043],[121.0888375,14.7069638],[121.0889178,14.7071079],[121.0889315,14.7071324],[121.0890059,14.7072841],[121.0890453,14.7073643],[121.0890824,14.7074385],[121.0891248,14.707481],[121.089173,14.7075099],[121.0892284,14.7075231],[121.0893762,14.7075281],[121.0895685,14.7075577],[121.0897098,14.7076287],[121.0898469,14.7077221],[121.0899289,14.7077883],[121.0901239,14.7079944],[121.0901656,14.7080543],[121.0902204,14.7081408],[121.0903137,14.7082944],[121.090364,14.7083773],[121.0904348,14.7085047],[121.090456,14.7085531],[121.0906045,14.7088503],[121.0906691,14.7089761],[121.0907357,14.7091702],[121.0907465,14.7092711],[121.0907371,14.7096367],[121.0907377,14.7097015],[121.0907306,14.709957],[121.0907131,14.710531],[121.0907082,14.7106922],[121.0905796,14.7108739],[121.0904498,14.7110573],[121.0901977,14.7114135],[121.090023,14.7117509],[121.0898332,14.7121533],[121.0871119,14.7112189],[121.0869747,14.7113735],[121.0868004,14.7113584],[121.086672,14.7113318],[121.0862659,14.7112029],[121.0859762,14.7110311],[121.0856651,14.7109429],[121.0856973,14.7110339],[121.0849946,14.7105901],[121.0848906,14.7103196],[121.0841055,14.710054],[121.083089,14.709909]];
     const commonwealthGeoJSON = {
@@ -6259,7 +6293,7 @@ $stmt = null;
                 div.style.borderRadius = '5px';
                 div.style.boxShadow = '0 0 15px rgba(0,0,0,0.2)';
                 div.style.fontWeight = 'bold';
-                div.innerHTML = 'Commonwealth Ave. Barangays';
+                div.innerHTML = '';
                 return div;
             };
             titleControl.addTo(map);
@@ -6456,7 +6490,7 @@ $stmt = null;
             }
             map.on('click', async function(e){
                 const pt = [e.latlng.lng, e.latlng.lat];
-                if (!turf.booleanPointInPolygon(pt, commonwealthPoly)) return;
+                if (!turf.booleanPointInPolygon(turf.point(pt), commonwealthPoly)) return;
                 const col = nearestColor(e.latlng.lng, e.latlng.lat);
                 const html = '<div style="min-width:240px;padding:6px 4px;"><div style="font-weight:600;margin-bottom:8px;">Select Unit Type</div><div style="display:flex;gap:8px;align-items:center;justify-content:flex-start;"><button class="secondary-button" id="map-select-ronda"><span style="display:inline-flex;align-items:center;gap:6px;"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.4" fill="#111827"></circle><path d="M12 8.8l-1.5 2.6-2.2.5M12 8.8l1.8 1.8 2.2.5M10.5 11.4l1.5 2.8M13.8 11.1l-1.8 3.1M12 14.5l-1.6 3.7M12 14.5l1.6 3.7" stroke="#111827" stroke-width="1.8" stroke-linecap="round" fill="none"></path></svg>Ronda</span></button><button class="primary-button" id="map-select-mobile"><span style="display:inline-flex;align-items:center;gap:6px;"><svg width="18" height="18" viewBox="0 0 24 24"><rect x="4" y="8" width="14" height="7" rx="1.5" fill="#111827"></rect><rect x="12" y="9" width="5" height="3" fill="#ffffff"></rect><circle cx="8" cy="16" r="1.6" fill="#ffffff"></circle><circle cx="15" cy="16" r="1.6" fill="#ffffff"></circle></svg>Mobile Patrol</span></button></div></div>';
                 L.popup({ closeOnClick: true, autoClose: true }).setLatLng(e.latlng).setContent(html).openOn(map);
@@ -6504,7 +6538,7 @@ $stmt = null;
             });
             function addPin(lng, lat, label){
                 const pt = [lng, lat];
-                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
+                if (turf.booleanPointInPolygon(turf.point(pt), commonwealthPoly)) {
                     const col = nearestColor(lng, lat);
                     const m = L.marker([lat, lng], { icon: createResidentIcon(col) }).addTo(pinLayer);
                     if (label) m.bindTooltip(label, { permanent: true, direction: 'top' });
@@ -6534,7 +6568,7 @@ $stmt = null;
             window.addResidentOnStreet = addResidentOnStreet;
             function createPinpoint(lat, lng, title) {
                 const pt = [lng, lat];
-                if (turf.booleanPointInPolygon(pt, commonwealthPoly)) {
+                if (turf.booleanPointInPolygon(turf.point(pt), commonwealthPoly)) {
                     const col = nearestColor(lng, lat);
                     const m = L.marker([lat, lng], { icon: createResidentIcon(col) }).addTo(pinLayer);
                     if (title) m.bindTooltip(title, { permanent: true, direction: 'top', className: 'unit-tooltip' });
@@ -6550,7 +6584,7 @@ $stmt = null;
                 var placed = 0;
                 for (var i = 0; i < pts.features.length && placed < n; i++) {
                     var c = pts.features[i].geometry.coordinates;
-                    if (turf.booleanPointInPolygon(c, commonwealthPoly)) {
+                    if (turf.booleanPointInPolygon(turf.point(c), commonwealthPoly)) {
                         createPinpoint(c[1], c[0], 'Unit ' + (placed + 1));
                         placed++;
                     }
@@ -6700,12 +6734,18 @@ $stmt = null;
 
         var gpsMapReady = false;
         var gpsMapCtx = { type: null, map: null, markers: [] };
+        var gpsMarkersById = new Map();
+        var gpsUnitsLayer = null;
+        var gpsUnitsInterval = null;
         async function initGPSMap(){
             // Always init to ensure map is shown even if called multiple times
             await initCommonwealthMap();
             gpsMapReady = true;
             if (typeof loadGPSUnits === 'function') {
                 loadGPSUnits();
+            }
+            if (!gpsUnitsInterval && typeof loadGPSUnits === 'function') {
+                gpsUnitsInterval = setInterval(loadGPSUnits, 5000);
             }
         }
         function loadLeafletCDN(){
@@ -6862,22 +6902,17 @@ $stmt = null;
                 }
             }
         }
-        function updateMapUnitMarkers(units){
+        function updateMapUnitMarkers(units, opts){
             if (!gpsMapCtx || !gpsMapCtx.map) return;
-            const items = Array.isArray(units) ? units : [];
-            if (gpsMapCtx.markers && gpsMapCtx.markers.length){
-                gpsMapCtx.markers.forEach(function(m){
-                    if (gpsMapCtx.type === 'leaflet' && m && typeof m.remove === 'function') { m.remove(); }
-                    else if (gpsMapCtx.type === 'google' && m && typeof m.setMap === 'function') { m.setMap(null); }
-                    else if (gpsMapCtx.type === 'google' && m && 'map' in m) { m.map = null; }
-                });
-                gpsMapCtx.markers = [];
-            }
-            // GPS Status legend removed per request
-            items.forEach(function(u){
-                if (gpsMapCtx.type === 'leaflet') {
-                    if (typeof L === 'undefined') return;
-                    var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
+            var items = Array.isArray(units) ? units : [];
+            var authoritative = !opts || opts.authoritative !== false;
+            if (gpsMapCtx.type === 'leaflet') {
+                for (var i = 0; i < items.length; i++) {
+                    var u = items[i];
+                    var id = String(u.id || u.unit_id || '');
+                    var hasPos = typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined';
+                    if (!id || !hasPos) continue;
+                    var zoneColor = (typeof window.getZoneColor === 'function' && hasPos) ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
                     var t = (u.unit_type ? String(u.unit_type) : (u.type ? String(u.type) : ''));
                     if (!t) {
                         var a = String(u.assignment ?? u.assignment_area ?? '').toLowerCase();
@@ -6886,38 +6921,78 @@ $stmt = null;
                     }
                     var html = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
                     var icon = L.divIcon({ className:'poi-icon', html: html, iconSize:[28,28], iconAnchor:[14,14] });
-                    if (typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
-                        var m = L.marker([Number(u.lat), Number(u.lng)], { icon: icon, title: u.callsign || String(u.id || '') }).addTo(gpsMapCtx.map);
-                        var label = u.callsign || String(u.id || u.unit_id || '');
-                        if (label) { m.bindTooltip(label, { permanent:false, direction:'top' }); }
-                        m.on('click', function(){
-                            updateUnitInfo(u);
-                            gpsMapCtx.map.setView([Number(u.lat), Number(u.lng)], Math.max(gpsMapCtx.map.getZoom(), 17));
-                        });
-                        gpsMapCtx.markers.push(m);
-                    }
-                } else if (gpsMapCtx.type === 'google') {
-                    if (gpsMapCtx.AdvancedMarkerElement && typeof u.lat !== 'undefined' && typeof u.lng !== 'undefined') {
-                        var container = document.createElement('div');
-                        var zoneColor = (typeof window.getZoneColor === 'function' && typeof u.lng !== 'undefined' && typeof u.lat !== 'undefined') ? window.getZoneColor(Number(u.lng), Number(u.lat)) : statusColor(u.status);
-                        var t = (u.unit_type ? String(u.unit_type) : (u.type ? String(u.type) : ''));
-                        if (!t) {
-                            var a = String(u.assignment ?? u.assignment_area ?? '').toLowerCase();
-                            if (a.includes('ronda') || a.includes('foot') || a.includes('walk')) t = 'Ronda';
-                            else t = 'Mobile Patrol';
-                        }
-                        container.innerHTML = (t === 'Ronda' ? createRondaIconHtml(zoneColor) : createMobileIconHtml(zoneColor));
-                        var marker = new gpsMapCtx.AdvancedMarkerElement({ map: gpsMapCtx.map, position: { lat: Number(u.lat), lng: Number(u.lng) }, content: container, title: u.callsign || String(u.id || '') });
-                        marker.addListener('click', function(){
-                            updateUnitInfo(u);
-                            gpsMapCtx.map.panTo({ lat: Number(u.lat), lng: Number(u.lng) });
-                            var z = gpsMapCtx.map.getZoom();
-                            if (z < 17) gpsMapCtx.map.setZoom(17);
-                        });
-                        gpsMapCtx.markers.push(marker);
+                    var m = gpsMarkersById.get(id);
+                    if (!m) {
+                        m = L.marker([Number(u.lat), Number(u.lng)], { icon: icon, title: u.callsign || id, pane: 'gps-markers' });
+                        if (gpsUnitsLayer) m.addTo(gpsUnitsLayer); else m.addTo(gpsMapCtx.map);
+                        var label = u.callsign || id;
+                        if (label) m.bindTooltip(label, { permanent:false, direction:'top' });
+                        m.on('click', (function(lat, lng, unit){
+                            return function(){
+                                updateUnitInfo(unit);
+                                gpsMapCtx.map.setView([Number(lat), Number(lng)], Math.max(gpsMapCtx.map.getZoom(), 17));
+                            };
+                        })(u.lat, u.lng, u));
+                        gpsMarkersById.set(id, m);
+                    } else {
+                        m.setLatLng([Number(u.lat), Number(u.lng)]);
+                        m.setIcon(icon);
+                        var label2 = u.callsign || id;
+                        if (label2) m.bindTooltip(label2, { permanent:false, direction:'top' });
                     }
                 }
-            });
+                if (authoritative) {
+                    var seen = new Set(items.map(function(u){ return String(u.id || u.unit_id || ''); }));
+                    gpsMarkersById.forEach(function(m, id){
+                        if (!seen.has(id)) {
+                            if (gpsUnitsLayer) gpsUnitsLayer.removeLayer(m); else if (m && typeof m.remove === 'function') m.remove();
+                            gpsMarkersById.delete(id);
+                        }
+                    });
+                }
+            } else if (gpsMapCtx.type === 'google') {
+                if (!gpsMapCtx.AdvancedMarkerElement) return;
+                for (var j = 0; j < items.length; j++) {
+                    var u2 = items[j];
+                    var id2 = String(u2.id || u2.unit_id || '');
+                    var hasPos2 = typeof u2.lat !== 'undefined' && typeof u2.lng !== 'undefined';
+                    if (!id2 || !hasPos2) continue;
+                    var container = document.createElement('div');
+                    var zoneColor2 = (typeof window.getZoneColor === 'function' && hasPos2) ? window.getZoneColor(Number(u2.lng), Number(u2.lat)) : statusColor(u2.status);
+                    var t2 = (u2.unit_type ? String(u2.unit_type) : (u2.type ? String(u2.type) : ''));
+                    if (!t2) {
+                        var a2 = String(u2.assignment ?? u2.assignment_area ?? '').toLowerCase();
+                        if (a2.includes('ronda') || a2.includes('foot') || a2.includes('walk')) t2 = 'Ronda';
+                        else t2 = 'Mobile Patrol';
+                    }
+                    container.innerHTML = (t2 === 'Ronda' ? createRondaIconHtml(zoneColor2) : createMobileIconHtml(zoneColor2));
+                    var mk = gpsMarkersById.get(id2);
+                    if (!mk) {
+                        mk = new gpsMapCtx.AdvancedMarkerElement({ map: gpsMapCtx.map, position: { lat: Number(u2.lat), lng: Number(u2.lng) }, content: container, title: u2.callsign || id2 });
+                        mk.addListener('click', (function(lat, lng, unit){
+                            return function(){
+                                updateUnitInfo(unit);
+                                gpsMapCtx.map.panTo({ lat: Number(lat), lng: Number(lng) });
+                                var z = gpsMapCtx.map.getZoom();
+                                if (z < 17) gpsMapCtx.map.setZoom(17);
+                            };
+                        })(u2.lat, u2.lng, u2));
+                        gpsMarkersById.set(id2, mk);
+                    } else {
+                        mk.content = container;
+                        mk.position = { lat: Number(u2.lat), lng: Number(u2.lng) };
+                    }
+                }
+                if (authoritative) {
+                    var seen2 = new Set(items.map(function(u){ return String(u.id || u.unit_id || ''); }));
+                    gpsMarkersById.forEach(function(mk, id){
+                        if (!seen2.has(id)) {
+                            if (mk && typeof mk.setMap === 'function') mk.setMap(null);
+                            gpsMarkersById.delete(id);
+                        }
+                    });
+                }
+            }
         }
         
         const adminMsgContactSearch = document.getElementById('admin-msg-contact-search');

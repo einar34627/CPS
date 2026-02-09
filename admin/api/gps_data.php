@@ -136,18 +136,18 @@ try {
     // UPDATED QUERY - Using correct column names from your gps_units table
     $stmt = $pdo->query("
         SELECT 
-            unit_id as id,
+            unit_id AS id,
             callsign,
             assignment,
-            latitude as lat,
-            longitude as lng,
+            latitude AS lat,
+            COALESCE(longitude, longtitude) AS lng,
             status,
             last_ping,
-            TIMESTAMPDIFF(SECOND, last_ping, NOW()) as seconds_since_ping,
+            TIMESTAMPDIFF(SECOND, last_ping, NOW()) AS seconds_since_ping,
             assignment_area,
             unit_type,
             duration,
-            IFNULL(is_active, 1) as is_active
+            IFNULL(is_active, 1) AS is_active
         FROM gps_units 
         ORDER BY callsign
     ");
