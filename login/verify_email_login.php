@@ -33,22 +33,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $expiry_time = $code_record['expiry'];
             
             if (strtotime($current_time) <= strtotime($expiry_time)) {
-                // Mark user as verified
-                $stmt = $pdo->prepare("UPDATE users SET is_verified = 1, verification_code = NULL, code_expiry = NULL WHERE email = ?");
+                $stmt = $pdo->prepare("UPDATE users SET verification_code = NULL, code_expiry = NULL WHERE email = ?");
                 if ($stmt->execute([$email])) {
                     // Delete used verification code
                     $stmt = $pdo->prepare("DELETE FROM verification_codes WHERE email = ? AND code = ?");
                     $stmt->execute([$email, $entered_code]);
                     
-                    $success = "Email verified successfully! Redirecting you to login...";
+                    $success = "Email verified successfully! Your account is pending admin approval.";
                     
                     // Clear session variables
                     unset($_SESSION['unverified_user_id']);
                     unset($_SESSION['unverified_email']);
                     unset($_SESSION['unverified_name']);
                     
-                    // Redirect to login page after 2 seconds
-                    header("refresh:2;url=login.php?verified=success");
+                    header("refresh:2;url=login.php?verified=pending");
                 } else {
                     $errors['verification_code'] = "Failed to verify email. Please try again.";
                 }
@@ -67,18 +65,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $expiry_time = $user_code_record['code_expiry'];
                 
                 if (strtotime($current_time) <= strtotime($expiry_time)) {
-                    // Mark user as verified
-                    $stmt = $pdo->prepare("UPDATE users SET is_verified = 1, verification_code = NULL, code_expiry = NULL WHERE email = ?");
+                    $stmt = $pdo->prepare("UPDATE users SET verification_code = NULL, code_expiry = NULL WHERE email = ?");
                     if ($stmt->execute([$email])) {
-                        $success = "Email verified successfully! Redirecting you to login...";
+                        $success = "Email verified successfully! Your account is pending admin approval.";
                         
                         // Clear session variables
                         unset($_SESSION['unverified_user_id']);
                         unset($_SESSION['unverified_email']);
                         unset($_SESSION['unverified_name']);
                         
-                        // Redirect to login page after 2 seconds
-                        header("refresh:2;url=login.php?verified=success");
+                        header("refresh:2;url=login.php?verified=pending");
                     } else {
                         $errors['verification_code'] = "Failed to verify email. Please try again.";
                     }

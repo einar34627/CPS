@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 session_start();
 require_once '../config/db_connection.php';
@@ -83,7 +83,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         } elseif ($action === 'user_list') {
             try {
-                $stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at, contact, address, date_of_birth FROM users ORDER BY created_at DESC LIMIT 500");
+                try {
+                    $pdo->exec("DELETE FROM users WHERE is_verified = 0 AND created_at IS NOT NULL AND TIMESTAMPDIFF(HOUR, created_at, NOW()) >= 12");
+                } catch (Exception $e) {}
+                $stmt = $pdo->prepare("SELECT id, first_name, middle_name, last_name, username, email, role, is_verified, created_at, DATE_ADD(created_at, INTERVAL 12 HOUR) AS expires_at, contact, address, date_of_birth FROM users ORDER BY created_at DESC LIMIT 500");
                 $stmt->execute([]);
                 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 echo json_encode(['success'=>true,'users'=>$rows]);
@@ -7178,7 +7181,8 @@ $stmt = null;
                     tr.appendChild(tdWith(escapeHtml(u.role||'USER')));
                     const created = u.created_at ? new Date(u.created_at).toLocaleString() : '';
                     tr.appendChild(tdWith(escapeHtml(created)));
-                    tr.appendChild(tdWith(`<div class="assign-controls"><button class="primary-button user-view-btn" data-id="${u.id}">View</button><button class="primary-button user-verify-btn" data-id="${u.id}">Verify</button><button class="secondary-button user-delete-btn" data-id="${u.id}">Delete</button></div>`));
+                    const expires = u.expires_at || (u.created_at ? new Date(new Date(u.created_at).getTime()+12*3600*1000).toISOString() : '');
+                    tr.appendChild(tdWith(`<div class="assign-controls"><button class="primary-button user-view-btn" data-id="${u.id}">View</button><button class="primary-button user-verify-btn" data-id="${u.id}">Verify</button><button class="secondary-button user-delete-btn" data-id="${u.id}">Delete</button></div><div style="margin-top:6px;color:#c2410c;font-weight:600;"><span class="pending-countdown" data-id="${u.id}" data-exp="${expires}"></span></div>`));
                     pendingBody.appendChild(tr);
                 });
             }
@@ -7204,6 +7208,35 @@ $stmt = null;
                 });
             }
         }
+        function formatHMS(ms){
+            if (ms <= 0) return 'Expired';
+            const s = Math.floor(ms/1000);
+            const h = String(Math.floor(s/3600)).padStart(2,'0');
+            const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+            const sec = String(s%60).padStart(2,'0');
+            return `${h}:${m}:${sec}`;
+        }
+        function startPendingCountdowns(){
+            if (!userPendingTbody) return;
+            const nodes = userPendingTbody.querySelectorAll('.pending-countdown');
+            nodes.forEach(node=>{
+                const exp = node.getAttribute('data-exp');
+                const id = node.getAttribute('data-id');
+                if (!exp) { node.textContent = ''; return; }
+                const expTs = new Date(exp).getTime();
+                function tick(){
+                    const left = expTs - Date.now();
+                    if (left <= 0) {
+                        node.textContent = 'Expired';
+                        deleteUser(id).then(()=>loadUsers());
+                        return;
+                    }
+                    node.textContent = 'Expires in '+formatHMS(left);
+                }
+                tick();
+                setInterval(tick, 1000);
+            });
+        }
         function escapeHtml(s){ const div=document.createElement('div'); div.textContent=String(s||''); return div.innerHTML; }
         async function loadUsers(){
             try{
@@ -7216,6 +7249,7 @@ $stmt = null;
                 userData.forEach(u=>{ const r=String(u.role||'').toUpperCase(); if (counts[r]!==undefined) counts[r]++; });
                 userRoleButtons.forEach(btn=>{ const r=btn.getAttribute('data-role'); btn.textContent = r.charAt(0)+r.slice(1).toLowerCase() + ((counts[r]!==undefined) ? ` (${counts[r]})` : ''); if (r==='ALL') btn.textContent = `All (${counts.ALL})`; });
                 renderUsers();
+                startPendingCountdowns();
             }catch(_){ userData = []; renderUsers(); }
         }
         if (userSearch) userSearch.addEventListener('input', renderUsers);
@@ -7278,6 +7312,7 @@ $stmt = null;
             });
         }
         loadUsers();
+        setInterval(loadUsers, 60000);
 
         function openUserView(id){
             const user = userData.find(u=>String(u.id)===String(id));

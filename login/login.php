@@ -135,42 +135,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $errors['general'] = "Invalid email/username or password";
                     }
                 } else if ($user && !$user['is_verified']) {
-                    // User exists but email is not verified - show error message and resend option
-                    $errors['general'] = "Your account is not verified. Please check your inbox for the verification link we sent you.";
-                    $show_resend_option = true;
+                    $errors['general'] = "Your account is pending admin approval. Please wait until an administrator verifies your account.";
+                    $show_resend_option = false;
                     $unverified_email = $user['email'];
-                    
-                    // Store email in session for resend functionality
                     $_SESSION['unverified_email'] = $user['email'];
-                    
-                    // AUTOMATICALLY SEND VERIFICATION EMAIL
-                    try {
-                        // Generate new verification code
-                        $verification_code = generate_verification_code();
-                        $expiry_time = date('Y-m-d H:i:s', strtotime('+30 minutes'));
-                        
-                        // Update user with new verification code
-                        $stmt = $pdo->prepare("UPDATE users SET verification_code = ?, code_expiry = ? WHERE email = ?");
-                        if ($stmt->execute([$verification_code, $expiry_time, $user['email']])) {
-                            
-                            // Also store in verification_codes table for redundancy
-                            $stmt = $pdo->prepare("INSERT INTO verification_codes (email, code, expiry) VALUES (?, ?, ?)");
-                            $stmt->execute([$user['email'], $verification_code, $expiry_time]);
-                            
-                            // Send verification email with link
-                            if (send_verification_email_with_link($user['email'], $user['first_name'], $verification_code)) {
-                                $auto_sent_verification = true;
-                                $errors['general'] = "Your account is not verified. We've automatically sent a new verification link to your email. Please check your inbox and spam folder.";
-                            } else {
-                                $errors['general'] = "Your account is not verified. Failed to send verification email. Please try again.";
-                            }
-                        } else {
-                            $errors['general'] = "Your account is not verified. Failed to generate verification code. Please try again.";
-                        }
-                    } catch (PDOException $e) {
-                        error_log("Auto resend verification error: " . $e->getMessage());
-                        $errors['general'] = "Your account is not verified. An error occurred while sending verification email. Please try again.";
-                    }
                 } else {
                     // User not found
                     $errors['general'] = "Invalid email/username or password";
@@ -1116,27 +1084,34 @@ if (isset($_POST['resend_verification'])) {
                 align-items: flex-start;
             }
         }
-        @media (max-width: 600px) {
+        @media (max-width: 820px) {
             body {
                 background: var(--card-bg);
+                padding-top: calc(72px + env(safe-area-inset-top));
             }
             .bg-decoration,
             .watermark-logo,
-            .logo-left {
+            .logo-left,
+            .security-features {
                 display: none;
             }
             .back-button {
+                position: fixed;
                 top: calc(12px + env(safe-area-inset-top));
                 left: 12px;
                 padding: 10px 14px;
                 font-size: 14px;
+                z-index: 100;
+                margin: 0;
             }
             .dark-mode-toggle {
+                position: fixed;
                 top: calc(12px + env(safe-area-inset-top));
                 right: 12px;
                 width: 42px;
                 height: 42px;
                 font-size: 18px;
+                z-index: 110;
             }
             .login-container {
                 position: relative;
@@ -1147,7 +1122,63 @@ if (isset($_POST['resend_verification'])) {
                 max-width: none;
                 border-radius: 16px;
                 padding: 20px 16px;
-                margin: 80px auto 24px;
+                margin: 16px auto 24px;
+                box-shadow: none;
+                border: 0;
+                max-height: none;
+                overflow: visible;
+            }
+            .login-header h2 { font-size: 24px; }
+            .login-header p { font-size: 13px; }
+            .form-group { margin-bottom: 14px; }
+            .form-group input {
+                font-size: 16px;
+                padding: 14px 16px 14px 44px;
+                border-radius: 12px;
+            }
+            .password-toggle { right: 14px; }
+            .form-options { flex-direction: column; gap: 12px; align-items: stretch; }
+            .btn-primary { padding: 14px; border-radius: 12px; font-size: 16px; }
+            .register-link, .footer { font-size: 12px; }
+        }
+        @media (max-width: 600px) {
+            body {
+                background: var(--card-bg);
+                padding-top: calc(72px + env(safe-area-inset-top));
+            }
+            .bg-decoration,
+            .watermark-logo,
+            .logo-left {
+                display: none;
+            }
+            .back-button {
+                position: sticky;
+                top: 0;
+                left: auto;
+                margin: 12px;
+                padding: 10px 14px;
+                font-size: 14px;
+                z-index: 100;
+            }
+            .dark-mode-toggle {
+                top: calc(12px + env(safe-area-inset-top));
+                right: 12px;
+                width: 42px;
+                height: 42px;
+                font-size: 18px;
+                position: fixed;
+                z-index: 110;
+            }
+            .login-container {
+                position: relative;
+                right: auto;
+                top: auto;
+                transform: none;
+                width: 100%;
+                max-width: none;
+                border-radius: 16px;
+                padding: 20px 16px;
+                margin: 16px auto 24px;
                 box-shadow: none;
                 border: 0;
                 max-height: none;
